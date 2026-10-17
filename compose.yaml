@@ -1,0 +1,21 @@
+services:
+  hushrp:
+    build: .
+    container_name: hushrp
+    restart: unless-stopped
+    environment:
+      PORT: "3000"
+      HOST: "0.0.0.0"
+      LAN_ONLY: "${LAN_ONLY:-false}"
+      RUNTIME_MODE: "${RUNTIME_MODE:-vps}"
+      ALLOW_CLIENT_API_KEYS: "${ALLOW_CLIENT_API_KEYS:-false}"
+      CLIENT_KEY_HOSTS: "${CLIENT_KEY_HOSTS:-api.openai.com,openrouter.ai}"
+      AI_API_KEY: "${AI_API_KEY:-}"
+      CUSTOM_ENDPOINT_HOSTS: "${CUSTOM_ENDPOINT_HOSTS:-}"
+      MAX_INPUT_TOKENS: "${MAX_INPUT_TOKENS:-1800}"
+      MEMORY_SUMMARY_CHARS: "${MEMORY_SUMMARY_CHARS:-900}"
+      MAX_OUTPUT_TOKENS: "${MAX_OUTPUT_TOKENS:-500}"
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${PORT:-3000}:3000"
+    volumes:
+      - ./data:/app/data
