@@ -16,6 +16,8 @@ HushRP is a self-hostable AI roleplay web application built on pure Node.js with
 - [Installation](#installation)
 - [Deployment Modes](#deployment-modes)
 - [Configuration](#configuration)
+- [Reverse Proxy Examples](#reverse-proxy-examples)
+- [Troubleshooting](#troubleshooting)
 - [Project Structure](#project-structure)
 - [AI Provider Support](#ai-provider-support)
 - [API Key Modes](#api-key-modes)
@@ -120,6 +122,11 @@ docker compose up -d
 ```
 
 Conversation and character data are persisted in the `./data` volume on the host.
+
+> **Backup**: back up the `./data` directory directly. For example:
+> ```sh
+> tar -czf hushrp-backup-$(date +%F).tar.gz data/ .env
+> ```
 
 ---
 
@@ -248,6 +255,83 @@ The API key is entered in the browser and held in memory only. It is cleared whe
 
 ---
 
+## Reverse Proxy Examples
+
+> These examples are provided for convenience when deploying HushRP behind a reverse proxy with HTTPS termination. Adjust hostnames, certificates, and paths to match your environment.
+
+### `compose.yaml` snippet
+
+```yaml
+services:
+  hushrp:
+    build: .
+    container_name: hushrp
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3000:3000"   # bind only to localhost; reverse proxy exposes externally
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+```
+
+### Nginx
+
+```nginx
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name hushrp.example.com;
+
+    ssl_certificate     /etc/letsencrypt/live/hushrp.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/hushrp.example.com/privkey.pem;
+
+    client_max_body_size 10m;
+
+    location / {
+        proxy_pass         http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+        proxy_read_timeout 300s;   # allow longer timeouts for streaming replies
+    }
+}
+```
+
+### Caddy
+
+```caddyfile
+hushrp.example.com {
+    reverse_proxy 127.0.0.1:3000 {
+        transport http {
+            read_timeout 300s
+        }
+    }
+}
+```
+
+> When using a reverse proxy, set `RUNTIME_MODE=vps` in `.env` and ensure `LAN_ONLY=false`.
+
+---
+
+## Troubleshooting
+
+| Symptom | Likely cause | Check / fix |
+|---|---|---|
+| `EADDRINUSE` | Port already in use | Change `PORT`, or locate the process with `lsof -i :3000` / `netstat -ano | findstr :3000` |
+| `.env` changes not taking effect | Not restarted / wrong path | `.env` must be in the same directory as the start command; restart after editing |
+| Ollama connection fails | Service not running or wrong port | Verify `ollama serve` is running (default `http://127.0.0.1:11434`), and run `ollama pull <model>` |
+| LAN mobile cannot connect | `HOST` not set to `0.0.0.0` or firewall blocking | Check `.env` and system firewall; when `LAN_ONLY=true` the connecting IP must be in an RFC 1918 private range |
+| Reverse proxy returns 502 | Proxy cannot reach backend / backend not listening | Confirm the backend is running and `proxy_pass` address matches `PORT` |
+| Streaming replies truncated | Reverse proxy timeout too short | Increase `proxy_read_timeout` / `read_timeout` |
+| Browser API key option greyed out | VPS mode or `ALLOW_CLIENT_API_KEYS=false` | Switch to `local` or `lan` mode and set `ALLOW_CLIENT_API_KEYS=true` |
+| Custom endpoint rejected | Not HTTPS or not in `CUSTOM_ENDPOINT_HOSTS` | Use an HTTPS domain, or add it to the allowlist |
+| Context truncated too early | `MAX_INPUT_TOKENS` too small | Increase to match model capability; adjust `MEMORY_SUMMARY_CHARS` as needed |
+
+---
+
 ## Testing
 
 The test suite uses the Node.js built-in test runner. No additional test framework is required.
@@ -269,6 +353,7 @@ Current status: **262 tests passing, 0 failing**.
 
 ## Other Languages
 
+- [Linux installation guide](README-LINUX.md)
 - [ภาษาไทย (Thai)](README_th.md)
 - [中文 (Chinese)](README_zh.md)
 

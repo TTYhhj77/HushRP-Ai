@@ -1,4 +1,10 @@
-# ติดตั้ง HushRP บน Linux (อัปเดต: browser API key ปิดเป็นค่าเริ่มต้น; โหมด VPS บังคับปิดเสมอ)
+# คู่มือการติดตั้ง HushRP บน Linux
+
+> เอกสารนี้มุ่งเน้นการติดตั้งบน Linux / macOS เป็นหลัก หากต้องการข้อมูลทั่วไป โหมดการใช้งาน และรายละเอียดอื่นๆ โปรดดูที่ [README.md](README.md) หลัก
+
+> **หมายเหตุสำคัญ**: browser API key ปิดเป็นค่าเริ่มต้น; โหมด VPS บังคับปิดเสมอ
+
+เครื่องส่วนตัว/เครือข่าย LAN อาจเปิด `ALLOW_CLIENT_API_KEYS=true` ใน `.env` ให้ผู้ใช้กรอกคีย์ในแท็บเองได้ คีย์ส่งผ่าน Hush backend และอยู่ในหน่วยความจำของแท็บ แต่ไม่บันทึกลง storage; การใช้ key ใน browser ยังเสี่ยงกว่า server-key ให้ใช้เฉพาะเครือข่ายส่วนตัวที่เชื่อถือได้และ provider ที่กำหนดใน `CLIENT_KEY_HOSTS`. Launcher ตั้ง `RUNTIME_MODE=vps` สำหรับโหมด VPS และ server จะบังคับปิด browser-key เสมอ.
 
 เครื่องส่วนตัว/เครือข่าย LAN อาจเปิด `ALLOW_CLIENT_API_KEYS=true` ใน `.env` ให้ผู้ใช้กรอกคีย์ในแท็บเองได้ คีย์ส่งผ่าน Hush backend และอยู่ในหน่วยความจำของแท็บ แต่ไม่บันทึกลง storage; การใช้ key ใน browser ยังเสี่ยงกว่า server-key ให้ใช้เฉพาะเครือข่ายส่วนตัวที่เชื่อถือได้และ provider ที่กำหนดใน `CLIENT_KEY_HOSTS`. Launcher ตั้ง `RUNTIME_MODE=vps` สำหรับโหมด VPS และ server จะบังคับปิด browser-key เสมอ.
 
@@ -7,6 +13,8 @@
 รองรับ Linux ที่มี Node.js 20+ หรือ Docker Engine + Compose plugin (เช่น Ubuntu/Debian)
 
 ## วิธีง่ายสุด: Docker Compose
+
+คัดลอกโฟลเดอร์โปรเจกต์ไปยังเครื่อง Linux แล้วรัน:
 
 คัดลอกโฟลเดอร์โปรเจกต์ไปยังเครื่อง Linux แล้วรัน:
 
@@ -20,9 +28,16 @@ docker compose up -d --build
 docker compose logs -f
 ```
 
-หยุด: `docker compose down`. ข้อมูลตัวละครและรูปเก็บใน `./data` และอยู่ต่อเมื่อ container restart.
+หยุด: `docker compose down`. ข้อมูลตัวละครและรูปเก็บใน `./data` และคงอยู่เมื่อ container restart
 
-สำหรับ home Wi-Fi เท่านั้น แก้ `.env` ให้มี `BIND_ADDRESS=0.0.0.0` และ `LAN_ONLY=true`, เปิด firewall เฉพาะวง private, จากนั้น `docker compose up -d`. ไม่ต้องตั้ง router port-forwarding และห้ามเปิดบริการนี้ผ่าน public IP โดยตรง
+> **สำรองข้อมูล**: จัดเก็บ `./data` และ `.env` เป็นระยะ ตัวอย่าง:
+> ```bash
+> tar -czf hushrp-backup-$(date +%F).tar.gz data/ .env
+> ```
+
+### สำหรับบ้าน / Wi-Fi ภายในเท่านั้น
+
+แก้ `.env` ให้มี `BIND_ADDRESS=0.0.0.0` และ `LAN_ONLY=true`, เปิด firewall เฉพาะวง private, จากนั้น `docker compose up -d`. ไม่ต้องตั้ง router port-forwarding และห้ามเปิดบริการนี้ผ่าน public IP โดยตรง
 
 ## วิธีติดตั้งแบบไม่ใช้ Docker
 
@@ -36,6 +51,16 @@ chmod +x install-linux.sh
 
 ## VPS / public website
 
-เลือกเมนู VPS หรือใช้ Docker โดยคง bind address เป็น `127.0.0.1`; วาง Caddy/Nginx ที่มี HTTPS ด้านหน้า ใช้โดเมนถ้ามี ไม่เช่นนั้นต้องตั้งใบรับรอง IP และระบบต่ออายุอัตโนมัติที่รองรับ ห้ามเปิด Node HTTP port สู่ public โดยตรง
+เลือกเมนู VPS หรือใช้ Docker โดยคง bind address เป็น `127.0.0.1`; วาง **Caddy** หรือ **Nginx** ที่มี HTTPS ด้านหน้า ใช้โดเมนถ้ามี ไม่เช่นนั้นต้องตั้งใบรับรอง IP และระบบต่ออายุอัตโนมัติที่รองรับ **ห้ามเปิด Node HTTP port สู่ public โดยตรง**
 
-ก่อนเปิดให้คนทั่วไปใช้ ต้องเพิ่มบัญชีผู้ใช้และแยกข้อมูลรายผู้ใช้, rate limiting, สำรอง `data/`, logging/monitoring และตรวจข้อกำหนด AI provider; แอปปัจจุบันเป็น single-process JSON storage สำหรับส่วนตัวหรือกลุ่มเล็กเท่านั้น.
+### ตัวอย่าง reverse proxy
+
+- ดูตัวอย่าง Nginx / Caddy / compose.yaml ได้ที่ [README.md](README.md#reverse-proxy-examples)
+- ใช้โดเมน + HTTPS อย่าลืมตั้ง `RUNTIME_MODE=vps` และตรวจสอบ `LAN_ONLY=false`
+
+### ก่อนเปิดให้คนอื่นใช้
+
+- เพิ่มการป้องกันเข้าถึง (AUTH_TOKEN) และแยกข้อมูลรายผู้ใช้ถ้าจำเป็น
+- ตั้ง rate limiting, สำรอง `data/` เป็นระยะ
+- ตรวจสอบ logging / monitoring และข้อกำหนด AI provider
+- แอปปัจจุบันเป็น single-process JSON storage สำหรับใช้ส่วนตัวหรือกลุ่มเล็กเท่านั้น
