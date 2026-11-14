@@ -3,9 +3,9 @@
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D20-brightgreen.svg)](https://nodejs.org)
 [![Zero Dependencies](https://img.shields.io/badge/dependencies-0-blue.svg)](package.json)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-262%20passing-success.svg)](test/)
+[![Tests](https://img.shields.io/badge/tests-284%20passing-success.svg)](test/)
 
-HushRP 是一款可自托管的 AI 角色扮演 Web 应用，完全基于纯 Node.js 构建，运行时零 npm 依赖。它面向最高级别的隐私与可移植性设计：无数据库守护进程、无构建步骤、无打包器。整个前端以单个 HTML 文件交付。所有持久化状态均以原子性 JSON 文件形式存储在主机文件系统上。
+HushRP 是一款可自托管的 AI 角色扮演 Web 应用，完全基于纯 Node.js 构建，运行时零 npm 依赖。它面向最高级别的隐私与可移植性设计：无数据库守护进程、无构建步骤、无打包器。前端采用模块化静态资源目录（`public/`），由 Node.js 内置服务器直接提供服务。所有持久化状态均以原子性 JSON 文件形式存储在主机文件系统上。
 
 ---
 
@@ -36,7 +36,19 @@ HushRP 仅使用 Node.js 内置模块（`http`、`fs`、`crypto`、`path`、`os`
 
 ### 多语言界面 (i18n)
 
-界面支持**泰语、英语、中文**，覆盖全部 UI 字符串（100%）。语言切换动态生效，无需刷新页面。**自定义语言创建器**允许用户上传 JSON 字典文件，将界面扩展至任意语言。项目内附一份日语示例字典作为参考。
+界面支持**泰语（`th`）、英语（`en`）、中文（`zh`）与日语（`ja`）**，覆盖全部 UI 字符串、内置角色卡片与类型标签（100%）。语言切换动态生效，无需刷新页面，还可通过**自定义语言创建器**上传或编辑 JSON 字典扩展任意语言。
+
+### 多主题界面与 Web Audio 音效
+
+内置 5 套配色主题（`obsidian`、`sakura`、`emerald`、`ocean`、`parchment`），提供 GPU 加速过渡动画、`prefers-reduced-motion` 无障碍支持、移动端虚拟键盘视口自适应以及由 Web Audio API 实时合成的 UI 音效。
+
+### 隐式 AI 自动记忆与一键完全重置
+
+对话中的角色 AI 会在单轮回复末尾通过隐藏标签 `<memory>...</memory>` 自动记录简洁的长期语义记忆（姓名、关系、约定、关键剧情），无需额外调用总结 API。用户可随时在界面中查看、添加、删除、触发 AI 整理压缩，或执行完全重置（`resetCharacterAll`）同步清空内存、`localStorage` 与服务器端的长期记忆及聊天记录。
+
+### 网页端 API 配置、连接测试与 Ollama 支持
+
+可直接在 Web 界面选择提供商（`OpenAI`、`OpenRouter`、`Ollama` 或自定义 OpenAI 兼容端点）、保存服务器端 API 密钥、拉取模型列表并执行连接与延迟测试（`/api/test-connection`），支持本机与局域网 Ollama 的 `/v1/models` 及 `/api/tags` 自动发现。
 
 ### 角色工作室 (Character Studio)
 
@@ -197,17 +209,23 @@ CLIENT_KEY_HOSTS=api.openai.com,openrouter.ai
 server.js                       # HTTP 服务、AI 代理、安全、文件持久化
 lib/
   context.js                    # 上下文边界、提取式压缩、token 启发式
-roleplay-ai-prototype-v3.html   # 单文件前端（HTML + CSS + JS，无构建步骤）
+public/
+  index.html                    # 主 Web UI 页面
+  css/styles.css                # 多主题与移动端响应式样式
+  js/*.js                       # 模块化前端逻辑（API、对话、Auto-Memory、状态、设置、i18n）
+  locales/{th,en,zh,ja}.js      # 内置 4 语言词典
 test/
-  app.test.js                   # 服务、API 代理与启动器测试
+  app.test.js                   # 服务、AI 代理、连接检测与启动器测试
   context.test.js               # 上下文优化器与 token 预算测试
-  features-v4.test.js           # i18n、Persona、收藏与聊天持久化测试
+  features-v4.test.js           # i18n、主题、隐式 AI 自动记忆、Persona、收藏与持久化测试
   mobile-menu-smoke.test.js     # 可访问性与导航抽屉测试
+  security.test.js              # 认证、SSRF 防护、会话隔离与上传/响应头加固测试
+  helpers.js                    # 前端测试公共辅助函数
 data/
-  characters.json               # 角色数据库
-  settings.json                 # 用户设置与模型列表缓存
-  chats.json                    # 本地对话历史
-  uploads/                      # 角色美术资源
+  characters.json               # 角色数据库（运行时生成，已 gitignore）
+  settings.json                 # 用户设置与密钥（运行时生成，已 gitignore）
+  chats.json                    # 对话与 AI 记忆存储（运行时生成，已 gitignore）
+  uploads/                      # 角色图片资源（仅保留 .gitkeep）
 Dockerfile
 compose.yaml
 start.cmd                       # Windows 交互式启动器
@@ -346,14 +364,15 @@ hushrp.example.com {
 node --test
 ```
 
-当前状态：**262 通过，0 失败**。
+当前状态：**284 通过，0 失败**（Windows 下若未安装 `bash` / Docker Compose，则对应 2 项环境检查自动跳过）。
 
 | 测试文件 | 覆盖范围 |
 |----------|----------|
-| `test/app.test.js` | HTTP 服务、AI 代理路由、Windows/Linux 启动器 |
+| `test/app.test.js` | HTTP 服务、AI 代理路由、连接测试、Windows/Linux 启动器 |
 | `test/context.test.js` | 上下文优化器、提取式压缩器、token 启发式 |
-| `test/features-v4.test.js` | i18n 切换、Persona 注入、收藏、聊天持久化 |
+| `test/features-v4.test.js` | i18n、主题、隐式 AI 自动记忆、Persona 注入、收藏、聊天持久化 |
 | `test/mobile-menu-smoke.test.js` | 导航抽屉、可访问性属性 |
+| `test/security.test.js` | 访问令牌认证、SSRF 防护、会话隔离、上传与安全头校验 |
 
 ---
 

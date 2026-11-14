@@ -1,11 +1,9 @@
 'use strict';
-const fs=require('node:fs');
 const vm=require('node:vm');
 const test=require('node:test');
 const assert=require('node:assert/strict');
-const html=fs.readFileSync('roleplay-ai-prototype-v3.html','utf8');
-const scripts=[...html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/gi)].map(match=>match[1]);
-const script=scripts.join('\n');
+const {readFrontendScripts}=require('./helpers');
+const script=readFrontendScripts().join('\n');
 function makeClassList(initial=[]){const values=new Set(initial);return {add:x=>values.add(x),remove:x=>values.delete(x),contains:x=>values.has(x),toggle(x,force){if(force===undefined)force=!values.has(x);force?values.add(x):values.delete(x);return force}}}
 function makeElement({initialClasses=[],children=[]}={}){return {classList:makeClassList(initialClasses),attributes:{},inert:false,children,focusCount:0,addEventListener(){},querySelector(){return this.children[0]||null},setAttribute(name,value){this.attributes[name]=value},focus(){this.focusCount++}}}
 test('opening/closing mobile drawer updates accessibility state and traps inert state correctly',()=>{

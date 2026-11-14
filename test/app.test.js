@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { createServer } = require('../server');
+const { readFrontendBundle } = require('./helpers');
 
 async function withServer(fn) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hushrp-'));
@@ -196,26 +197,26 @@ test('compose config parses with Docker compose when installed',t=>{
 });
 
 test('custom provider panel provides saved-entry actions and server allow-list guidance',()=>{
-  const html=fs.readFileSync(path.join(__dirname,'..','roleplay-ai-prototype-v3.html'),'utf8');
+  const html=readFrontendBundle();
   assert.doesNotMatch(html,/customProviderPanel|id="customProviderList"/);assert.match(html,/OpenAI compatible \/ Custom/);
   assert.match(html,/server does not allow|server allow-list|ไม่อนุญาต host|allowlist/i);
 });
 
 test('mobile sidebar has a visible toggle control and hides drawer by default',()=>{
-  const html=fs.readFileSync(path.join(__dirname,'..','roleplay-ai-prototype-v3.html'),'utf8');
+  const html=readFrontendBundle();
   assert.match(html,/id="mobileMenuToggle"/);assert.match(html,/id="mobileNavOverlay"/);
   assert.match(html,/aria-controls="mobileNavDrawer"/);assert.match(html,/aria-expanded="false"/);
 });
 
 test('mobile settings controls fit small screens without fixed widths',()=>{
-  const html=fs.readFileSync(path.join(__dirname,'..','roleplay-ai-prototype-v3.html'),'utf8');
+  const html=readFrontendBundle();
   assert.match(html,/\.settings-row\{display:grid;grid-template-columns:minmax\(0,1fr\)/);
   assert.match(html,/\.provider-select\{width:100%;max-width:100%;min-width:0\}/);
   assert.match(html,/\.main\{padding-bottom:calc\(72px \+ env\(safe-area-inset-bottom\)\)\}/);
 });
 
 test('phone-width media query keeps two card columns and usable bottom navigation',()=>{
-  const html=fs.readFileSync(path.join(__dirname,'..','roleplay-ai-prototype-v3.html'),'utf8');
+  const html=readFrontendBundle();
   const phone=html.match(/@media\(max-width:370px\)\{([^{}]+(?:\{[^{}]*\}[^{}]*)*)\}/)?.[0]||'';
   assert.match(html,/\.cards\{grid-template-columns:repeat\(2,minmax\(0,1fr\)\)\}/);
   assert.doesNotMatch(html,/\.cards\{grid-template-columns:1fr\}/);
@@ -232,7 +233,7 @@ test('prototype keeps image upload in character editor and text-only compose',as
 });
 
 test('settings panel has deduplicated controls and token budget presets', () => {
-  const html = fs.readFileSync(path.join(__dirname, '..', 'roleplay-ai-prototype-v3.html'), 'utf8');
+  const html = readFrontendBundle();
   const tokenBudgetMatches = html.match(/id="tokenBudget"/g) || [];
   const maxReplyMatches = html.match(/id="maxReplyTokens"/g) || [];
   assert.equal(tokenBudgetMatches.length, 1, 'id="tokenBudget" must be unique in DOM');
@@ -242,7 +243,7 @@ test('settings panel has deduplicated controls and token budget presets', () => 
 });
 
 test('character studio provides both cover image and background image inputs', () => {
-  const html = fs.readFileSync(path.join(__dirname, '..', 'roleplay-ai-prototype-v3.html'), 'utf8');
+  const html = readFrontendBundle();
   assert.match(html, /id="charCoverImage"/);
   assert.match(html, /id="characterImage"/);
   assert.match(html, /previewCoverImage/);
@@ -250,9 +251,208 @@ test('character studio provides both cover image and background image inputs', (
 });
 
 test('chat session isolation and smooth glide animation are configured', () => {
-  const html = fs.readFileSync(path.join(__dirname, '..', 'roleplay-ai-prototype-v3.html'), 'utf8');
+  const html = readFrontendBundle();
   assert.match(html, /sessionChatStores/);
   assert.match(html, /chat-glide-in/);
   assert.match(html, /messages\.switching/);
 });
+
+test('serverApiKey can be saved and cleared from settings API without exposing raw secret', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hush-webkey-'));
+  const app = createServer({ dataDir: dir, apiKey: '' });
+  await new Promise(resolve => app.server.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${app.server.address().port}`;
+  try {
+    const rawSecret = 'sk-proj-supersecret9876';
+    const putRes = await fetch(base + '/api/settings', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ serverApiKey: rawSecret })
+    });
+    assert.equal(putRes.status, 200);
+    const putData = await putRes.json();
+    assert.equal(JSON.stringify(putData).includes(rawSecret), false);
+    assert.equal(putData.serverKeyMasked, 'sk-••••9876');
+
+    const getSettings = await (await fetch(base + '/api/settings')).json();
+    assert.equal(JSON.stringify(getSettings).includes(rawSecret), false);
+    assert.equal(getSettings.serverKeyMasked, 'sk-••••9876');
+
+    const status = await (await fetch(base + '/api/status')).json();
+    assert.equal(status.aiConfigured, true);
+    assert.equal(status.serverKeyMasked, 'sk-••••9876');
+    assert.equal(JSON.stringify(status).includes(rawSecret), false);
+
+    const clearRes = await fetch(base + '/api/settings', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ serverApiKey: '' })
+    });
+    assert.equal(clearRes.status, 200);
+    const statusAfter = await (await fetch(base + '/api/status')).json();
+    assert.equal(statusAfter.aiConfigured, false);
+    assert.equal(statusAfter.serverKeyMasked, '');
+  } finally {
+    await new Promise(resolve => app.server.close(resolve));
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('VPS without authToken blocks modifying serverApiKey from Web UI', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hush-vps-webkey-'));
+  const app = createServer({ dataDir: dir, apiKey: '', runtimeMode: 'vps' });
+  await new Promise(resolve => app.server.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${app.server.address().port}`;
+  try {
+    const r = await fetch(base + '/api/settings', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ serverApiKey: 'sk-attempted-overwrite' })
+    });
+    assert.equal(r.status, 403);
+  } finally {
+    await new Promise(resolve => app.server.close(resolve));
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('Ollama supports both /v1/models and /api/tags fallback, LAN hostnames, and dynamic chat URL without empty Bearer header', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hush-ollama-'));
+  const seen = [];
+  const fakeFetch = async (url, init) => {
+    seen.push({ url, headers: init?.headers || {}, body: init?.body ? JSON.parse(init.body) : null });
+    if (url === 'http://192.168.1.55:11434/v1/models') {
+      return new Response('not found', { status: 404 });
+    }
+    if (url === 'http://192.168.1.55:11434/api/tags') {
+      return new Response(JSON.stringify({ models: [{ name: 'qwen2.5:7b' }] }), { status: 200 });
+    }
+    if (url === 'http://192.168.1.55:11434/v1/chat/completions') {
+      return new Response(JSON.stringify({ choices: [{ message: { content: 'สวัสดีจาก Ollama' }, finish_reason: 'stop' }] }), { status: 200 });
+    }
+    return new Response('{}', { status: 404 });
+  };
+  const app = createServer({ dataDir: dir, apiKey: '', runtimeMode: 'lan', fetch: fakeFetch });
+  await new Promise(resolve => app.server.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${app.server.address().port}`;
+  try {
+    const mRes = await fetch(base + '/api/models', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ provider: 'ollama', baseUrl: 'http://192.168.1.55:11434/v1' })
+    });
+    assert.equal(mRes.status, 200);
+    assert.deepEqual((await mRes.json()).models, ['qwen2.5:7b']);
+
+    const cRes = await fetch(base + '/api/chat', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        provider: 'ollama',
+        baseUrl: 'http://192.168.1.55:11434/v1',
+        model: 'qwen2.5:7b',
+        maxInputTokens: 2400,
+        messages: [{ role: 'user', content: 'ทักทาย' }]
+      })
+    });
+    assert.equal(cRes.status, 200);
+    assert.equal((await cRes.json()).text, 'สวัสดีจาก Ollama');
+
+    const chatCall = seen.find(x => x.url.endsWith('/v1/chat/completions'));
+    assert.ok(chatCall);
+    assert.equal(chatCall.headers.authorization, undefined);
+  } finally {
+    await new Promise(resolve => app.server.close(resolve));
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('POST /api/test-connection checks provider discovery and reports latency', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hush-testconn-'));
+  const fakeFetch = async url => {
+    assert.equal(url, 'https://api.openai.com/v1/models');
+    return new Response(JSON.stringify({ data: [{ id: 'gpt-4o-mini' }] }), { status: 200 });
+  };
+  const app = createServer({ dataDir: dir, apiKey: 'sk-test-key', fetch: fakeFetch });
+  await new Promise(resolve => app.server.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${app.server.address().port}`;
+  try {
+    const r = await fetch(base + '/api/test-connection', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ provider: 'openai', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini' })
+    });
+    assert.equal(r.status, 200);
+    const data = await r.json();
+    assert.equal(data.ok, true);
+    assert.equal(data.mode, 'models');
+    assert.equal(data.modelCount, 1);
+    assert.equal(typeof data.latencyMs, 'number');
+  } finally {
+    await new Promise(resolve => app.server.close(resolve));
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('serves static frontend assets from public/ and blocks path traversal', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hush-static-'));
+  const app = createServer({ dataDir: dir });
+  await new Promise(resolve => app.server.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${app.server.address().port}`;
+  try {
+    for (const [assetPath, expectedType] of [
+      ['/css/styles.css', 'text/css'],
+      ['/js/app.js', 'text/javascript'],
+      ['/locales/th.js', 'text/javascript']
+    ]) {
+      const r = await fetch(base + assetPath);
+      assert.equal(r.status, 200, `${assetPath} should return 200`);
+      assert.ok((r.headers.get('content-type') || '').includes(expectedType));
+    }
+    const trav = await fetch(base + '/js/%2e%2e/%2e%2e/server.js');
+    assert.ok([403, 404].includes(trav.status));
+  } finally {
+    await new Promise(resolve => app.server.close(resolve));
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('PUT /api/characters/:id updates saved characters and frontend includes greeting & preserves chat history', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hush-edit-char-'));
+  const app = createServer({ dataDir: dir });
+  await new Promise(resolve => app.server.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${app.server.address().port}`;
+  try {
+    const createRes = await fetch(base + '/api/characters', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'Kael', role: 'Wizard', desc: 'Original', greeting: 'Welcome!' })
+    });
+    assert.equal(createRes.status, 201);
+    const created = await createRes.json();
+
+    const updateRes = await fetch(base + '/api/characters/' + encodeURIComponent(created.id), {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'Kael', role: 'Archmage', desc: 'Updated desc', greeting: 'Welcome back!' })
+    });
+    assert.equal(updateRes.status, 200);
+    const updated = await updateRes.json();
+    assert.equal(updated.role, 'Archmage');
+    assert.equal(updated.desc, 'Updated desc');
+  } finally {
+    await new Promise(resolve => app.server.close(resolve));
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+
+  const bundle = readFrontendBundle();
+  assert.match(bundle, /character\.greeting\s*\?/);
+  assert.doesNotMatch(bundle, /history\.splice\(0,\s*history\.length,\s*\.\.\.compactNow\)/);
+  assert.match(bundle, /saveServerKeyFromUi/);
+  assert.match(bundle, /testAiConnection/);
+  assert.match(bundle, /selectProviderPreset/);
+  assert.match(bundle, /saveCharacterDraft/);
+  assert.match(bundle, /editCharacter/);
+});
+
 

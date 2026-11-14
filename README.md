@@ -3,9 +3,9 @@
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D20-brightgreen.svg)](https://nodejs.org)
 [![Zero Dependencies](https://img.shields.io/badge/dependencies-0-blue.svg)](package.json)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-262%20passing-success.svg)](test/)
+[![Tests](https://img.shields.io/badge/tests-284%20passing-success.svg)](test/)
 
-HushRP is a self-hostable AI roleplay web application built on pure Node.js with no runtime npm dependencies. It is designed for maximum privacy and portability: there is no database daemon, no build step, and no bundler. The entire frontend is delivered as a single HTML file. All persistent state is stored as atomic JSON files on the host filesystem.
+HushRP is a self-hostable AI roleplay web application built on pure Node.js with no runtime npm dependencies. It is designed for maximum privacy and portability: there is no database daemon, no build step, and no bundler. The frontend is served as clean modular static files (`public/`) directly by the built-in Node.js server. All persistent state is stored as atomic JSON files on the host filesystem.
 
 ---
 
@@ -36,7 +36,19 @@ HushRP uses only Node.js built-in modules (`http`, `fs`, `crypto`, `path`, `os`)
 
 ### Multi-Language Interface (i18n)
 
-The interface supports Thai, English, and Chinese with 100% coverage of all UI strings. Languages switch dynamically without a page reload. A Custom Language Creator allows users to extend the interface to any language by uploading a JSON dictionary file. A Japanese sample dictionary is included as a reference.
+The interface supports **Thai (`th`), English (`en`), Chinese (`zh`), and Japanese (`ja`)** with 100% coverage of all UI strings, built-in character cards, and genre tags. Languages switch dynamically without a page reload, and a Custom Language Creator allows users to add any additional language via JSON dictionary.
+
+### Multi-Theme UI & Web Audio SFX
+
+Includes 5 selectable color themes (`obsidian`, `sakura`, `emerald`, `ocean`, and `parchment`), GPU-accelerated animations with `prefers-reduced-motion` support, mobile virtual keyboard viewport adaptation, and synthesized Web Audio UI sound effects.
+
+### Stealth AI Auto-Memory & Full Character Reset
+
+Instead of relying solely on basic string trimming, the active roleplay AI automatically records concise semantic long-term memories (names, promises, relationships, key plot events) inline inside hidden `<memory>...</memory>` tags during normal replies without extra API round trips. Users can inspect, edit, add, consolidate with AI, or perform a full character reset (`resetCharacterAll`) that wipes both long-term AI memory and chat history across RAM, `localStorage`, and server persistence.
+
+### Web UI API Setup, Connection Tester & Ollama Support
+
+Provider selection (`OpenAI`, `OpenRouter`, `Ollama`, or Custom OpenAI-compatible endpoints), server API keys, model discovery, and live latency/connection testing (`/api/test-connection`) can be configured directly inside the Web UI, including automatic `/v1/models` and `/api/tags` discovery for local and LAN Ollama instances.
 
 ### Character Studio
 
@@ -195,17 +207,23 @@ CLIENT_KEY_HOSTS=api.openai.com,openrouter.ai
 server.js                       # HTTP server, AI proxy, security, file persistence
 lib/
   context.js                    # Context bounding, extractive compressor, token heuristics
-roleplay-ai-prototype-v3.html   # Single-file frontend (HTML + CSS + JS, no build step)
+public/
+  index.html                    # Main web UI markup
+  css/styles.css                # Multi-theme responsive styles
+  js/*.js                       # Modular frontend logic (API, chat, memory, state, settings, i18n)
+  locales/{th,en,zh,ja}.js      # Built-in 4-language dictionaries
 test/
-  app.test.js                   # Server, API proxy, and launcher tests
+  app.test.js                   # Server, AI proxy, and launcher tests
   context.test.js               # Context optimizer and token budget tests
-  features-v4.test.js           # i18n, personas, favorites, and chat persistence tests
+  features-v4.test.js           # i18n, themes, Stealth AI Auto-Memory, personas, favorites, persistence
   mobile-menu-smoke.test.js     # Accessibility and navigation drawer tests
+  security.test.js              # Auth, SSRF, session isolation, upload & header hardening tests
+  helpers.js                    # Shared frontend test helpers
 data/
-  characters.json               # Character database
-  settings.json                 # User settings and cached model lists
-  chats.json                    # Local conversation history
-  uploads/                      # Character artwork
+  characters.json               # Runtime character database (auto-created, gitignored)
+  settings.json                 # Runtime settings & keys (auto-created, gitignored)
+  chats.json                    # Runtime chat & AI memory store (auto-created, gitignored)
+  uploads/                      # Uploaded character artwork (gitignored except .gitkeep)
 Dockerfile
 compose.yaml
 start.cmd                       # Windows interactive launcher
@@ -340,14 +358,15 @@ The test suite uses the Node.js built-in test runner. No additional test framewo
 node --test
 ```
 
-Current status: **262 tests passing, 0 failing**.
+Current status: **284 tests passing, 0 failing** (plus 2 environment-conditional skips on Windows when `bash` / Docker Compose are absent).
 
 | Test file | Coverage area |
 |---|---|
-| `test/app.test.js` | HTTP server, AI proxy routes, Windows/Linux launchers |
+| `test/app.test.js` | HTTP server, AI proxy routes, connection check, Windows/Linux launchers |
 | `test/context.test.js` | Context optimizer, extractive compressor, token heuristics |
-| `test/features-v4.test.js` | i18n switching, persona injection, favorites, chat persistence |
+| `test/features-v4.test.js` | i18n, themes, Stealth AI Auto-Memory, personas, favorites, chat persistence |
 | `test/mobile-menu-smoke.test.js` | Navigation drawer, accessibility attributes |
+| `test/security.test.js` | Auth token checks, SSRF protection, session isolation, upload & header hardening |
 
 ---
 

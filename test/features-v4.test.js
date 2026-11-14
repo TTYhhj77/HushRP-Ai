@@ -6,8 +6,9 @@ const os = require('node:os');
 const path = require('node:path');
 const vm = require('node:vm');
 const { createServer } = require('../server');
+const { readFrontendBundle } = require('./helpers');
 
-const html = fs.readFileSync(path.join(__dirname, '..', 'roleplay-ai-prototype-v3.html'), 'utf8');
+const html = readFrontendBundle();
 
 async function withCustomServer(options, fn) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hushrp-v4-'));
@@ -379,15 +380,16 @@ test('HTML contains multi-language support (en, zh, th) and custom language edit
 });
 
 test('I18N dictionaries have complete 100% key coverage for th, en, zh, and SAMPLE_JA_LOCALE', () => {
-  const i18nMatch = html.match(/const I18N\s*=\s*(\{[\s\S]*?\n\};)/);
-  assert.ok(i18nMatch, 'I18N object defined');
-  let I18N;
-  eval('I18N = ' + i18nMatch[1]);
-
-  const jaMatch = html.match(/const SAMPLE_JA_LOCALE\s*=\s*(\{[\s\S]*?\n\};)/);
-  assert.ok(jaMatch, 'SAMPLE_JA_LOCALE defined');
-  let SAMPLE_JA;
-  eval('SAMPLE_JA = ' + jaMatch[1]);
+  const ctx = { window: {} };
+  vm.createContext(ctx);
+  for (const lf of ['th.js', 'en.js', 'zh.js', 'ja.js']) {
+    const src = fs.readFileSync(path.join(__dirname, '..', 'public', 'locales', lf), 'utf8');
+    vm.runInContext(src, ctx);
+  }
+  const I18N = ctx.window.I18N;
+  const SAMPLE_JA = ctx.window.SAMPLE_JA_LOCALE;
+  assert.ok(I18N, 'I18N object defined');
+  assert.ok(SAMPLE_JA, 'SAMPLE_JA_LOCALE defined');
 
   const htmlKeys = new Set();
   for (const m of html.matchAll(/data-i18n(?:-[a-z]+)?="([^"]+)"/g)) {
@@ -599,5 +601,517 @@ test('HTML includes custom host allowlist panel with correct elements', () => {
   assert.match(html, /loadCustomHostList\(\)/);
   // Panel must mention local/LAN restriction and server does not allow / allowlist guidance
   assert.match(html, /server does not allow|server allow-list|allowlist|ไม่อนุญาต host/i);
+});
+
+test('persists and sanitizes activeTheme across all supported themes in settings API', async () => {
+  await withCustomServer({}, async base => {
+    for (const theme of ['sakura', 'emerald', 'ocean', 'parchment', 'obsidian']) {
+      const putRes = await fetch(`${base}/api/settings`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ activeTheme: theme })
+      });
+      assert.equal(putRes.status, 200);
+      const getRes = await fetch(`${base}/api/settings`);
+      assert.equal(getRes.status, 200);
+      const settings = await getRes.json();
+      assert.equal(settings.activeTheme, theme);
+    }
+
+    const badPut = await fetch(`${base}/api/settings`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ activeTheme: 'invalid-neon-theme' })
+    });
+    assert.equal(badPut.status, 200);
+    const badGet = await fetch(`${base}/api/settings`);
+    const badSettings = await badGet.json();
+    assert.equal(badSettings.activeTheme, 'obsidian');
+  });
+});
+
+test('UI bundle includes multi-theme CSS variables, theme/sound controls, mobile drawer quick prefs, and reduced-motion rules', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'css', 'styles.css'), 'utf8');
+  for (const themeId of ['sakura', 'emerald', 'ocean', 'parchment']) {
+    assert.match(css, new RegExp(`\\[data-theme="${themeId}"\\]`));
+  }
+  assert.match(css, /@media\s*\(\s*prefers-reduced-motion:\s*reduce\s*\)/);
+  assert.doesNotMatch(css, /padding-inline:10px 8px 10px 50px/);
+  assert.match(css, /\.conv-cards\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/);
+  assert.match(css, /\.conv-card\s*\{[^}]*min-width:\s*0[^}]*overflow:\s*hidden/);
+  assert.match(css, /\.chat-compose\s*\{[^}]*background:\s*transparent/);
+  assert.match(css, /\.compose-box\s*\{[^}]*background:\s*var\(--compose-box-bg\)[^}]*backdrop-filter:\s*blur/);
+  assert.match(css, /body\.keyboard-open\s*\.sidebar/);
+  assert.match(css, /body\.keyboard-open\s*\.chat-layout\s*\{\s*height:\s*var\(--vvh/);
+
+  assert.match(html, /id="themeToggleBtn"/);
+  assert.match(html, /id="appearancePanel"/);
+  assert.match(html, /id="themeGrid"/);
+  assert.match(html, /class="mobile-drawer-prefs"/);
+  assert.match(html, /id="settingsSoundToggle"/);
+  assert.match(html, /previewSound\(\)/);
+  assert.match(html, /cycleTheme\(\)/);
+  assert.doesNotMatch(html, /color:#ccc9be/);
+});
+
+test('All I18N dictionaries (th, en, zh, SAMPLE_JA_LOCALE) maintain full 100% key parity across every defined key', () => {
+  const ctx = { window: {} };
+  vm.createContext(ctx);
+  for (const lf of ['th.js', 'en.js', 'zh.js', 'ja.js']) {
+    const src = fs.readFileSync(path.join(__dirname, '..', 'public', 'locales', lf), 'utf8');
+    vm.runInContext(src, ctx);
+  }
+  const I18N = ctx.window.I18N;
+  const jaDict = ctx.window.SAMPLE_JA_LOCALE.dict;
+  const allKeys = new Set([
+    ...Object.keys(I18N.th),
+    ...Object.keys(I18N.en),
+    ...Object.keys(I18N.zh),
+    ...Object.keys(jaDict)
+  ]);
+  for (const key of allKeys) {
+    assert.ok(typeof I18N.th[key] === 'string' && I18N.th[key].length > 0, `Missing th key: ${key}`);
+    assert.ok(typeof I18N.en[key] === 'string' && I18N.en[key].length > 0, `Missing en key: ${key}`);
+    assert.ok(typeof I18N.zh[key] === 'string' && I18N.zh[key].length > 0, `Missing zh key: ${key}`);
+    assert.ok(typeof jaDict[key] === 'string' && jaDict[key].length > 0, `Missing ja key: ${key}`);
+  }
+});
+
+test('Frontend VM executes multi-theme switching, character/genre localization, and Web Audio SFX cleanly', () => {
+  const storage = new Map();
+  const elements = new Map();
+  function createMockEl(id = '', tag = 'div') {
+    const classes = new Set();
+    const attrs = {};
+    return {
+      id,
+      tagName: tag.toUpperCase(),
+      value: '',
+      textContent: '',
+      innerHTML: '',
+      hidden: false,
+      checked: false,
+      scrollTop: 0,
+      scrollHeight: 0,
+      style: {},
+      dataset: {},
+      children: [],
+      options: [],
+      classList: {
+        add: (...names) => names.forEach(n => classes.add(n)),
+        remove: (...names) => names.forEach(n => classes.delete(n)),
+        toggle: (n, force) => {
+          const next = force === undefined ? !classes.has(n) : !!force;
+          if (next) classes.add(n); else classes.delete(n);
+          return next;
+        },
+        contains: n => classes.has(n)
+      },
+      setAttribute: (k, v) => { attrs[k] = String(v); },
+      getAttribute: k => (k in attrs ? attrs[k] : null),
+      removeAttribute: k => { delete attrs[k]; },
+      querySelector: () => null,
+      querySelectorAll: () => [],
+      appendChild(child) { this.children.push(child); return child; },
+      addEventListener: () => {},
+      focus: () => {}
+    };
+  }
+  function makeEl(id) {
+    if (!elements.has(id)) elements.set(id, createMockEl(id));
+    return elements.get(id);
+  }
+
+  const rootAttrs = {};
+  const rootStyleVars = {};
+  const visualViewport = { height: 844, addEventListener: () => {} };
+  let createdOscillators = 0;
+  class MockAudioContext {
+    constructor() {
+      this.state = 'running';
+      this.currentTime = 0;
+      this.destination = {};
+    }
+    resume() { return Promise.resolve(); }
+    createOscillator() {
+      createdOscillators += 1;
+      return {
+        type: 'sine',
+        frequency: { value: 440, setValueAtTime() {}, exponentialRampToValueAtTime() {} },
+        connect() {},
+        start() {},
+        stop() {}
+      };
+    }
+    createGain() {
+      return {
+        gain: { value: 0, setValueAtTime() {}, exponentialRampToValueAtTime() {}, linearRampToValueAtTime() {} },
+        connect() {}
+      };
+    }
+  }
+
+  const ctx = {
+    console,
+    Math,
+    Date,
+    JSON,
+    Array,
+    Object,
+    Set,
+    Map,
+    RegExp,
+    Error,
+    Promise,
+    Intl,
+    setTimeout,
+    clearTimeout,
+    setInterval,
+    clearInterval,
+    requestAnimationFrame: fn => fn(),
+    matchMedia: () => ({ matches: false, addEventListener() {} }),
+    navigator: { language: 'th-TH' },
+    fetch: async () => ({ ok: true, json: async () => ({}) }),
+    localStorage: {
+      getItem: k => (storage.has(k) ? storage.get(k) : null),
+      setItem: (k, v) => { storage.set(k, String(v)); },
+      removeItem: k => { storage.delete(k); }
+    },
+    sessionStorage: {
+      getItem: () => null,
+      setItem: () => {},
+      removeItem: () => {}
+    },
+    AudioContext: MockAudioContext,
+    innerWidth: 390,
+    innerHeight: 844,
+    visualViewport,
+    addEventListener: () => {},
+    document: {
+      activeElement: null,
+      documentElement: {
+        style: { setProperty: (k, v) => { rootStyleVars[k] = String(v); } },
+        setAttribute: (k, v) => { rootAttrs[k] = String(v); },
+        getAttribute: k => (k in rootAttrs ? rootAttrs[k] : null),
+        removeAttribute: k => { delete rootAttrs[k]; }
+      },
+      body: createMockEl('body', 'body'),
+      createElement: tag => createMockEl('', tag),
+      createTextNode: txt => ({ textContent: String(txt) }),
+      getElementById: id => makeEl(id),
+      querySelector: () => null,
+      querySelectorAll: () => [],
+      addEventListener: () => {}
+    }
+  };
+  ctx.window = ctx;
+  ctx.self = ctx;
+  vm.createContext(ctx);
+
+  const files = [
+    'locales/th.js',
+    'locales/en.js',
+    'locales/zh.js',
+    'locales/ja.js',
+    'js/i18n.js',
+    'js/state.js',
+    'js/api.js',
+    'js/characters.js',
+    'js/chat.js',
+    'js/settings.js'
+  ];
+  for (const rel of files) {
+    const src = fs.readFileSync(path.join(__dirname, '..', 'public', rel), 'utf8');
+    vm.runInContext(src, ctx, { filename: rel });
+  }
+
+  // 1. Built-in character and compound genre localization + preservation of user edits
+  ctx.switchLocale('en');
+  const defaultChars = vm.runInContext('characters', ctx);
+  const mira = defaultChars.find(c => c.name === 'Mira');
+  const locMiraEn = ctx.getLocalizedCharacter(mira);
+  assert.equal(locMiraEn.name, 'Mira');
+  assert.notEqual(locMiraEn.role, mira.role);
+  assert.match(locMiraEn.greeting, /Rain|station|map/i);
+
+  const editedHost = { ...defaultChars.find(c => c.name === 'The Host'), role: 'Custom Keeper' };
+  const locEdited = ctx.getLocalizedCharacter(editedHost);
+  assert.equal(locEdited.role, 'Custom Keeper');
+
+  const locGenreEn = ctx.formatGenreLabel('แฟนตาซี / slow burn / ผจญภัย');
+  assert.equal(locGenreEn, 'Fantasy / Slow Burn / Adventure');
+
+  ctx.switchLocale('ja');
+  const locMiraJa = ctx.getLocalizedCharacter(mira);
+  assert.notEqual(locMiraJa.desc, locMiraEn.desc);
+  assert.match(ctx.formatGenreLabel('แฟนตาซี / สยองขวัญ'), /ファンタジー.*ホラー/);
+
+  // 2. Theme switching and persistence
+  ctx.applyTheme('parchment');
+  assert.equal(rootAttrs['data-theme'], 'parchment');
+  assert.equal(storage.get('hush-theme'), 'parchment');
+  ctx.cycleTheme();
+  assert.equal(rootAttrs['data-theme'], undefined); // cycled back to obsidian (default)
+  assert.equal(storage.get('hush-theme'), 'obsidian');
+
+  // 3. Sound effects generate audio nodes when soundEnabled=true across all SFX kinds
+  for (const kind of ['tap', 'nav', 'send', 'receive', 'favorite', 'theme', 'modalOpen', 'modalClose', 'toggle', 'delete', 'error']) {
+    const before = createdOscillators;
+    ctx.playSfx(kind);
+    assert.ok(createdOscillators > before, `playSfx('${kind}') should synthesize oscillator tones`);
+  }
+  const beforePreview = createdOscillators;
+  ctx.previewSound();
+  assert.ok(createdOscillators > beforePreview, 'previewSound should play chime sequence');
+
+  // 4. Chat backdrop avatar fallback and mobile keyboard viewport adaptation
+  ctx.setChatBackground({ avatarUrl: '/uploads/cover.png' });
+  const bgEl = makeEl('chatBackground');
+  assert.match(bgEl.style.backgroundImage, /\/uploads\/cover\.png/);
+  assert.equal(bgEl.style.opacity, '.38');
+
+  visualViewport.height = 480;
+  ctx.syncMobileChatViewport();
+  assert.equal(rootStyleVars['--vvh'], '480px');
+  assert.equal(ctx.document.body.classList.contains('keyboard-open'), true);
+
+  const msgInput = makeEl('messageInput');
+  msgInput.scrollHeight = 140;
+  ctx.autoResizeChatInput(msgInput);
+  assert.equal(msgInput.style.height, '84px');
+
+  visualViewport.height = 844;
+  ctx.syncMobileChatViewport();
+  assert.equal(rootStyleVars['--vvh'], '844px');
+  assert.equal(ctx.document.body.classList.contains('keyboard-open'), false);
+});
+
+test('server /api/chats/:name persists aiMemory and DELETE wipes both history and aiMemory', async () => {
+  await withCustomServer({}, async base => {
+    const putRes = await fetch(`${base}/api/chats/Mira`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        history: [
+          { role: 'user', content: 'สวัสดีมิระ' },
+          { role: 'assistant', content: 'สวัสดีค่ะ' }
+        ],
+        aiMemory: ['  ชอบชาเขียว  ', '', '   ', 'นัดเจอกันตอนเย็นที่สถานี']
+      })
+    });
+    assert.equal(putRes.status, 200);
+    const putData = await putRes.json();
+    assert.equal(putData.ok, true);
+    assert.equal(putData.memoryCount, 2);
+
+    const getRes = await fetch(`${base}/api/chats`);
+    assert.equal(getRes.status, 200);
+    const allChats = await getRes.json();
+    assert.equal(allChats.Mira.history.length, 2);
+    assert.deepEqual(allChats.Mira.aiMemory, ['ชอบชาเขียว', 'นัดเจอกันตอนเย็นที่สถานี']);
+
+    const delRes = await fetch(`${base}/api/chats/Mira`, { method: 'DELETE' });
+    assert.equal(delRes.status, 200);
+
+    const afterDel = await fetch(`${base}/api/chats`).then(r => r.json());
+    assert.equal(afterDel.Mira, undefined);
+  });
+});
+
+test('stealth AI auto-memory extracts tags, avoids duplicate extractive prompt blocks, consolidates, and resetCharacterAll wipes all state', async () => {
+  const storage = new Map();
+  const elements = new Map();
+  const fetchCalls = [];
+  function createMockEl(id = '', tag = 'div') {
+    const classes = new Set();
+    const attrs = {};
+    const el = {
+      id,
+      tagName: tag.toUpperCase(),
+      value: '',
+      textContent: '',
+      innerHTML: '',
+      disabled: false,
+      hidden: false,
+      checked: false,
+      scrollTop: 0,
+      scrollHeight: 0,
+      offsetWidth: 100,
+      style: {},
+      dataset: {},
+      children: [],
+      options: [],
+      classList: {
+        add: (...names) => names.forEach(n => classes.add(n)),
+        remove: (...names) => names.forEach(n => classes.delete(n)),
+        toggle: (n, force) => {
+          const next = force === undefined ? !classes.has(n) : !!force;
+          if (next) classes.add(n); else classes.delete(n);
+          return next;
+        },
+        contains: n => classes.has(n)
+      },
+      setAttribute: (k, v) => { attrs[k] = String(v); },
+      getAttribute: k => (k in attrs ? attrs[k] : null),
+      removeAttribute: k => { delete attrs[k]; },
+      querySelector: sel => (sel === '.bubble' ? createMockEl('', 'div') : null),
+      querySelectorAll: () => [],
+      appendChild(child) {
+        this.children.push(child);
+        if (child && child.innerHTML) this.innerHTML += child.innerHTML;
+        return child;
+      },
+      addEventListener: () => {},
+      focus: () => {}
+    };
+    return el;
+  }
+  function makeEl(id) {
+    if (!elements.has(id)) elements.set(id, createMockEl(id));
+    return elements.get(id);
+  }
+
+  const ctx = {
+    console,
+    Math,
+    Date,
+    JSON,
+    Array,
+    Object,
+    Set,
+    Map,
+    RegExp,
+    Error,
+    Promise,
+    Intl,
+    encodeURIComponent,
+    decodeURIComponent,
+    setTimeout,
+    clearTimeout,
+    setInterval,
+    clearInterval,
+    requestAnimationFrame: fn => fn(),
+    matchMedia: () => ({ matches: false, addEventListener() {} }),
+    navigator: { language: 'th-TH' },
+    confirm: () => true,
+    showView: () => {},
+    fetch: async (url, init = {}) => {
+      fetchCalls.push({ url: String(url), method: init.method || 'GET', body: init.body || '' });
+      if (String(url).includes('/api/chat')) {
+        return {
+          ok: true,
+          json: async () => ({ text: '- ผู้ใช้ชอบโกโก้ร้อนและนัดพบกันที่สถานีเก่า' })
+        };
+      }
+      return { ok: true, json: async () => ({ ok: true }) };
+    },
+    localStorage: {
+      getItem: k => (storage.has(k) ? storage.get(k) : null),
+      setItem: (k, v) => { storage.set(k, String(v)); },
+      removeItem: k => { storage.delete(k); }
+    },
+    sessionStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
+    innerWidth: 390,
+    innerHeight: 844,
+    addEventListener: () => {},
+    document: {
+      activeElement: null,
+      documentElement: {
+        style: { setProperty: () => {} },
+        setAttribute: () => {},
+        getAttribute: () => null,
+        removeAttribute: () => {}
+      },
+      body: createMockEl('body', 'body'),
+      createElement: tag => createMockEl('', tag),
+      createTextNode: txt => ({ textContent: String(txt) }),
+      getElementById: id => makeEl(id),
+      querySelector: () => null,
+      querySelectorAll: () => [],
+      addEventListener: () => {}
+    }
+  };
+  ctx.window = ctx;
+  ctx.self = ctx;
+  vm.createContext(ctx);
+
+  for (const rel of [
+    'locales/th.js',
+    'locales/en.js',
+    'locales/zh.js',
+    'locales/ja.js',
+    'js/i18n.js',
+    'js/state.js',
+    'js/api.js',
+    'js/characters.js',
+    'js/chat.js',
+    'js/settings.js'
+  ]) {
+    const src = fs.readFileSync(path.join(__dirname, '..', 'public', rel), 'utf8');
+    vm.runInContext(src, ctx, { filename: rel });
+  }
+
+  ctx.switchLocale('th');
+  ctx.openChat('Mira');
+  const mira = vm.runInContext('characters', ctx).find(c => c.name === 'Mira');
+
+  // 1. Stealth tag extraction (closed + truncated unclosed)
+  const closed = ctx.extractStealthMemory('สวัสดี *ยิ้ม* <memory>- ชอบดื่มโกโก้ร้อน\n- แพ้ดอกซากุระ</memory>');
+  assert.equal(closed.visibleText, 'สวัสดี *ยิ้ม*');
+  assert.deepEqual(closed.extracted, ['ชอบดื่มโกโก้ร้อน', 'แพ้ดอกซากุระ']);
+
+  const truncated = ctx.extractStealthMemory('ซ่อนไว้ตรงนี้นะ <memory>- ซ่อนกุญแจไว้ใต้หมอน');
+  assert.equal(truncated.visibleText, 'ซ่อนไว้ตรงนี้นะ');
+  assert.deepEqual(truncated.extracted, ['ซ่อนกุญแจไว้ใต้หมอน']);
+
+  // 2. Auto-record strips tag and deduplicates into sessionChatStores[name].aiMemory
+  const cleanReply = ctx.autoRecordTurnMemory(
+    'Mira',
+    'ฉันชอบโกโก้ร้อนนะ',
+    '*ยิ้มอ่อนโยน*\n<memory>- ชอบโกโก้ร้อน\n- ชอบโกโก้ร้อน\n- เคยพบกันที่สถานี</memory>'
+  );
+  assert.equal(cleanReply, '*ยิ้มอ่อนโยน*');
+  const memList = ctx.getCharacterMemoryList('Mira');
+  assert.deepEqual(Array.from(memList), ['ชอบโกโก้ร้อน', 'เคยพบกันที่สถานี']);
+  assert.equal(makeEl('chatMemoryBadge').textContent, '2');
+  assert.equal(makeEl('chatMemoryBadge').hidden, false);
+  assert.match(makeEl('infoMemoryList').innerHTML, /ชอบโกโก้ร้อน/);
+
+  // 3. Prompt builder injects AI Auto-Memory & stealth rule without duplicating extractive block
+  ctx.setConversationMemory('Mira', 'legacy local extractive summary');
+  const msgsWithAiMem = ctx.buildChatMessages(mira, [{ role: 'user', content: 'จำได้ไหม' }]);
+  assert.match(msgsWithAiMem[0].content, /\[ความจำระยะยาวถาวร\]/);
+  assert.match(msgsWithAiMem[0].content, /ชอบโกโก้ร้อน/);
+  assert.match(msgsWithAiMem[0].content, /\[Stealth Auto-Memory\]/);
+  assert.equal(msgsWithAiMem.some(m => /local extractive/.test(m.content)), false);
+
+  // 4. Consolidation re-distills memory using active AI
+  makeEl('providerSelect').value = 'OpenAI';
+  makeEl('baseUrl').value = 'https://api.openai.com/v1';
+  makeEl('modelSelect').value = 'gpt-4o-mini';
+  await ctx.consolidateCharacterMemoryNow();
+  assert.deepEqual(Array.from(ctx.getCharacterMemoryList('Mira')), ['ผู้ใช้ชอบโกโก้ร้อนและนัดพบกันที่สถานีเก่า']);
+
+  // 5. Full reset wipes activeChatHistory, sessionConversationMemory, sessionChatStores, server store & restores greeting
+  ctx.window.activeChatHistory = [
+    { role: 'user', content: 'สวัสดี' },
+    { role: 'assistant', content: 'สวัสดีค่ะ' }
+  ];
+  const resetResult = ctx.resetCharacterAll('Mira');
+  assert.equal(resetResult, true);
+  assert.equal(ctx.window.activeChatHistory.length, 0);
+  assert.equal(ctx.getConversationMemory('Mira'), '');
+  assert.equal(vm.runInContext("sessionChatStores['Mira']", ctx), undefined);
+  assert.equal(makeEl('chatMemoryBadge').textContent, '0');
+  assert.equal(makeEl('chatMemoryBadge').hidden, true);
+  assert.equal(makeEl('toast').textContent.includes('{name}'), false);
+  assert.match(makeEl('toast').textContent, /Mira/);
+  assert.match(makeEl('messages').innerHTML, /Mira/);
+  assert.ok(fetchCalls.some(c => c.method === 'DELETE' && c.url.includes('/api/chats/Mira')));
+
+  // When aiMemory is empty, local extractive fallback remains available
+  ctx.setConversationMemory('Mira', 'fallback extractive snippet');
+  const msgsFallback = ctx.buildChatMessages(mira, [{ role: 'user', content: 'ต่อเลย' }]);
+  assert.ok(msgsFallback.some(m => /local extractive/.test(m.content) && /fallback extractive snippet/.test(m.content)));
 });
 

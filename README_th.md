@@ -3,9 +3,9 @@
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D20-brightgreen.svg)](https://nodejs.org)
 [![Zero Dependencies](https://img.shields.io/badge/dependencies-0-blue.svg)](package.json)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-262%20passing-success.svg)](test/)
+[![Tests](https://img.shields.io/badge/tests-284%20passing-success.svg)](test/)
 
-HushRP คือเว็บแอปพลิเคชัน AI roleplay แบบ self-hostable ที่สร้างขึ้นบน Node.js ล้วน โดยไม่มี runtime npm dependency เลย ออกแบบมาเพื่อความเป็นส่วนตัวและความพอร์ตเทเบิลสูงสุด: ไม่มี database daemon ไม่มี build step และไม่มี bundler frontend ทั้งหมดถูกส่งเป็นไฟล์ HTML ไฟล์เดียว สถานะที่ต้องบันทึกทั้งหมดจัดเก็บเป็นไฟล์ JSON แบบ atomic บนไฟล์ซิสเต็มของโฮสต์
+HushRP คือเว็บแอปพลิเคชัน AI roleplay แบบ self-hostable ที่สร้างขึ้นบน Node.js ล้วน โดยไม่มี runtime npm dependency เลย ออกแบบมาเพื่อความเป็นส่วนตัวและความพอร์ตเทเบิลสูงสุด: ไม่มี database daemon ไม่มี build step และไม่มี bundler ส่วน frontend ถูกแยกเป็นโมดูลในโฟลเดอร์ `public/` และเสิร์ฟโดยตรงจาก Node.js server สถานะที่ต้องบันทึกทั้งหมดจัดเก็บเป็นไฟล์ JSON แบบ atomic บนไฟล์ซิสเต็มของโฮสต์
 
 ---
 
@@ -34,7 +34,19 @@ HushRP ใช้เฉพาะ Node.js built-in module (`http`, `fs`, `crypto`,
 
 ### อินเทอร์เฟซหลายภาษา (i18n)
 
-อินเทอร์เฟซรองรับภาษาไทย อังกฤษ และจีน ครอบคลุมข้อความ UI ทั้งหมด 100% สลับภาษาได้แบบไดนามิกโดยไม่ต้องโหลดหน้าใหม่ มี Custom Language Creator ให้ผู้ใช้อัปโหลดไฟล์ JSON dictionary เพื่อขยายอินเทอร์เฟซเป็นภาษาใดก็ได้ โปรเจกต์มี dictionary ตัวอย่างภาษาญี่ปุ่นแนบมาให้เป็น reference
+อินเทอร์เฟซรองรับภาษา **ไทย (`th`), อังกฤษ (`en`), จีน (`zh`) และญี่ปุ่น (`ja`)** ครอบคลุมข้อความ UI การ์ดตัวละคร และแท็กแนวเรื่องทั้งหมด 100% สลับภาษาได้แบบไดนามิกโดยไม่ต้องโหลดหน้าใหม่ และมี Custom Language Creator ให้ผู้ใช้เพิ่มภาษาเพิ่มเติมผ่านไฟล์ JSON dictionary
+
+### ระบบธีมสีหลายรูปแบบและเสียง UI (Web Audio SFX)
+
+รองรับธีมสี 5 แบบ (`obsidian`, `sakura`, `emerald`, `ocean`, `parchment`) พร้อมแอนิเมชันที่ลื่นไหล รองรับโหมด `prefers-reduced-motion` ปรับหน้าจออัตโนมัติเมื่อเปิดคีย์บอร์ดบนมือถือ และสังเคราะห์เสียงเอฟเฟกต์ UI ผ่าน Web Audio API โดยไม่ต้องใช้ไฟล์เสียง
+
+### Stealth AI Auto-Memory และรีเซ็ตตัวละครทั้งหมด
+
+AI ตัวที่ใช้สนทนาจะช่วยแอบบันทึกความจำระยะยาวที่สำคัญ (เช่น ชื่อ คำสัญญา ความสัมพันธ์ และเหตุการณ์หลัก) ลงในแท็กซ่อน `<memory>...</memory>` ท้ายคำตอบโดยตรงในรอบเดียวโดยไม่เปลืองโทเคนหรือยิง API แยก ผู้ใช้สามารถเปิดดู เพิ่ม ลบ สั่งให้ AI สรุปความจำ หรือกดรีเซ็ตทั้งหมด (`resetCharacterAll`) เพื่อล้างทั้งความจำระยะยาวและประวัติแชตพร้อมกันทั้งใน RAM, `localStorage` และเซิร์ฟเวอร์
+
+### ตั้งค่า API และทดสอบการเชื่อมต่อจากหน้าเว็บ (รวม Ollama Local/LAN)
+
+ตั้งค่าผู้ให้บริการ (`OpenAI`, `OpenRouter`, `Ollama`, `OpenAI compatible / Custom`), API Key ฝั่งเซิร์ฟเวอร์, ดึงรายชื่อโมเดล และทดสอบการเชื่อมต่อพร้อมวัด Latency (`/api/test-connection`) ได้โดยตรงบนหน้าเว็บ รองรับ Ollama ทั้งแบบ `/v1/models` และ `/api/tags` บนเครื่องและใน LAN
 
 ### Character Studio
 
@@ -188,17 +200,23 @@ CLIENT_KEY_HOSTS=api.openai.com,openrouter.ai
 server.js                       # HTTP server, AI proxy, security, file persistence
 lib/
   context.js                    # Context bounding, extractive compressor, token heuristics
-roleplay-ai-prototype-v3.html   # Single-file frontend (HTML + CSS + JS, no build step)
+public/
+  index.html                    # หน้าเว็บหลัก
+  css/styles.css                # สไตล์หลายธีมและ responsive สำหรับมือถือ
+  js/*.js                       # โมดูล frontend (API, แชต, Auto-Memory, state, settings, i18n)
+  locales/{th,en,zh,ja}.js      # พจนานุกรมภาษาในตัว 4 ภาษา
 test/
-  app.test.js                   # Server, API proxy, and launcher tests
-  context.test.js               # Context optimizer and token budget tests
-  features-v4.test.js           # i18n, personas, favorites, and chat persistence tests
-  mobile-menu-smoke.test.js     # Accessibility and navigation drawer tests
+  app.test.js                   # Server, AI proxy และ launcher tests
+  context.test.js               # Context optimizer และ token budget tests
+  features-v4.test.js           # i18n, ธีม, Stealth AI Auto-Memory, personas, favorites, persistence
+  mobile-menu-smoke.test.js     # Accessibility และ navigation drawer tests
+  security.test.js              # Auth, SSRF, session isolation และ upload hardening tests
+  helpers.js                    # ตัวช่วยทดสอบ frontend
 data/
-  characters.json               # Character database
-  settings.json                 # User settings and cached model lists
-  chats.json                    # Local conversation history
-  uploads/                      # Character artwork
+  characters.json               # ฐานข้อมูลตัวละคร (สร้างอัตโนมัติ, gitignored)
+  settings.json                 # การตั้งค่าและคีย์ (สร้างอัตโนมัติ, gitignored)
+  chats.json                    # ประวัติแชตและความจำ AI (สร้างอัตโนมัติ, gitignored)
+  uploads/                      # รูปภาพตัวละคร (gitignored ยกเว้น .gitkeep)
 Dockerfile
 compose.yaml
 start.cmd                       # Windows interactive launcher
@@ -256,14 +274,15 @@ API key ถูกป้อนในเบราว์เซอร์และเ
 node --test
 ```
 
-สถานะปัจจุบัน: **262 ผ่าน, 0 ล้มเหลว**
+สถานะปัจจุบัน: **284 ผ่าน, 0 ล้มเหลว** (และข้าม 2 รายการบน Windows ที่ไม่มี `bash` / Docker Compose)
 
 | ไฟล์ทดสอบ | ขอบเขตที่ครอบคลุม |
 |---|---|
-| `test/app.test.js` | HTTP server, AI proxy route, launcher Windows/Linux |
+| `test/app.test.js` | HTTP server, AI proxy route, test connection, launcher Windows/Linux |
 | `test/context.test.js` | Context optimizer, extractive compressor, token heuristic |
-| `test/features-v4.test.js` | การสลับ i18n, การ inject persona, favorites, การบันทึกบทสนทนา |
+| `test/features-v4.test.js` | i18n, ธีม, Stealth AI Auto-Memory, persona, favorites, การบันทึกบทสนทนา |
 | `test/mobile-menu-smoke.test.js` | Navigation drawer, accessibility attribute |
+| `test/security.test.js` | Auth token, การป้องกัน SSRF, แยก session, ตรวจไฟล์อัปโหลดและ header |
 
 ---
 

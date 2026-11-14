@@ -25,7 +25,7 @@ function readJson(req, limit = MAX_BODY) {
   });
 }
 function loadCharacters(file){try{const arr=JSON.parse(fs.readFileSync(file,'utf8'));return Array.isArray(arr)?arr:[]}catch{return []}}
-const SETTINGS_KEYS=new Set(['globalPrompt','tokenBudget','replyBudget','worldSettings','providerSettings','modelCache','userProfiles','activeProfileId','favorites','activeLocale','customLocales','dynamicCustomHosts']);
+const SETTINGS_KEYS=new Set(['globalPrompt','tokenBudget','replyBudget','worldSettings','providerSettings','modelCache','userProfiles','activeProfileId','favorites','activeLocale','customLocales','dynamicCustomHosts','serverApiKey','activeTheme']);
 function loadSettings(file){try{const o=JSON.parse(fs.readFileSync(file,'utf8'));return o&&typeof o==='object'&&!Array.isArray(o)?o:{}}catch{return {}}}
 function timingSafeCheck(a, b){
   if(typeof a !== 'string' || typeof b !== 'string') return false;
@@ -82,6 +82,7 @@ function sanitizeSetting(key,value){
   if(key==='globalPrompt')return String(value||'').slice(0,8000);
   if(key==='activeProfileId')return String(value||'').slice(0,100);
   if(key==='activeLocale')return /^[a-zA-Z0-9_-]{2,20}$/.test(String(value||''))?String(value).slice(0,20):'th';
+  if(key==='activeTheme')return ['obsidian','sakura','emerald','ocean','parchment'].includes(String(value||''))?String(value):'obsidian';
   if(key==='customLocales'){
     if(!value||typeof value!=='object'||Array.isArray(value))return {};
     const out={};
@@ -118,7 +119,8 @@ function sanitizeSetting(key,value){
       };
     }).filter(Boolean);
   }
-  if(key==='providerSettings'){const v=value&&typeof value==='object'?value:{};return {provider:String(v.provider||'').slice(0,40),baseUrl:String(v.baseUrl||'').slice(0,300),model:String(v.model||'').slice(0,150),customBaseUrl:String(v.customBaseUrl||'').slice(0,300)}}
+  if(key==='providerSettings'){const v=value&&typeof value==='object'?value:{};return {provider:String(v.provider||'').slice(0,40),baseUrl:String(v.baseUrl||'').slice(0,300),model:String(v.model||'').slice(0,150),customBaseUrl:String(v.customBaseUrl||'').slice(0,300),keyMode:v.keyMode==='browser'?'browser':'server'}}
+  if(key==='serverApiKey')return String(value||'').trim().slice(0,500);
   if(key==='modelCache'){const v=value&&typeof value==='object'?value:{};const out={};for(const [p,list] of Object.entries(v).slice(0,10)){if(Array.isArray(list))out[String(p).slice(0,40)]=list.filter(x=>typeof x==='string').slice(0,300).map(x=>x.slice(0,150))}return out}
   if(key==='worldSettings'){const v=value&&typeof value==='object'?value:{};return {name:String(v.name||'').slice(0,200),description:String(v.description||'').slice(0,4000),rules:String(v.rules||'').slice(0,4000)}}
   if(key==='dynamicCustomHosts'){
@@ -171,7 +173,8 @@ function createServer(options={}) {
   const settingsFile=path.join(dataDir,'settings.json');
   const chatsFile=path.join(dataDir,'chats.json');
   const sessionsDir=path.join(dataDir,'sessions');
-  const apiKey=options.apiKey!==undefined?options.apiKey:process.env.AI_API_KEY||'';
+  const envApiKey=options.apiKey!==undefined?options.apiKey:process.env.AI_API_KEY||'';
+  const publicDir=path.join(root,'public');
   const lanOnly=options.lanOnly??process.env.LAN_ONLY==='true';
   const customHostEntries=String(options.customEndpointHosts??process.env.CUSTOM_ENDPOINT_HOSTS??'').split(',').map(x=>x.trim()).filter(Boolean);
   const customHosts=new Set(customHostEntries.flatMap(entry=>{const raw=entry.toLowerCase();try{return[new URL(raw.includes('://')?raw:`https://${raw}`).hostname.toLowerCase()]}catch{return[]}}));
@@ -185,6 +188,83 @@ function createServer(options={}) {
   const httpFetch=options.fetch||globalThis.fetch;
   const providerAdapters=options.providerAdapters||{};
   const configuredAuthToken = options.authToken !== undefined ? options.authToken : (process.env.AUTH_TOKEN || process.env.HUSH_AUTH_TOKEN || '');
+  function maskKey(k){const s=String(k||'').trim();if(!s)return '';return s.length>8?s.slice(0,3)+'••••'+s.slice(-4):'••••'}
+  function getEffectiveServerApiKey(){const saved=String(loadSettings(settingsFile).serverApiKey||'').trim();return saved||String(envApiKey||'').trim()}
+  function redactSettings(obj){const out={...(obj||{})};const hasKey=Boolean(out.serverApiKey);if(hasKey){out.serverKeyMasked=maskKey(out.serverApiKey);out.serverApiKey=out.serverKeyMasked}else{delete out.serverApiKey;out.serverKeyMasked=''}return out}
+  function isAllowedOllamaUrl(base){const h=base.hostname.toLowerCase();if(!['http:','https:'].includes(base.protocol))return false;if(['localhost','127.0.0.1','[::1]'].includes(h))return true;return runtimeMode!=='vps'&&isPrivateLanAddress(h)}
+  async function fetchWithLocalhostFallback(targetUrl,makeInit){
+    try{return await httpFetch(targetUrl,makeInit())}catch(err){
+      try{const u=new URL(targetUrl);if(u.hostname==='localhost'){u.hostname='127.0.0.1';return await httpFetch(u.toString(),makeInit())}}catch{}
+      throw err;
+    }
+  }
+  function normalizeProviderBase(base){const u=new URL(base.toString());u.search='';u.hash='';u.pathname=u.pathname.replace(/\/+$/,'').replace(/\/(chat\/completions|models|api\/tags)$/,'');return u}
+  function buildOllamaChatEndpoint(base){const u=normalizeProviderBase(base);const cleanPath=u.pathname.replace(/\/+$/,'');return cleanPath.endsWith('/v1')?`${u.origin}${cleanPath}/chat/completions`:`${u.origin}${cleanPath}/v1/chat/completions`}
+  function resolveProviderRequest(req,body,{requireKey=true,missingKeyError='No permitted API key is configured for this provider'}={}){
+    if(!body||!SAFE_PROVIDERS.has(body.provider))return {status:400,error:{error:'Unsupported provider'}};
+    let base;try{base=new URL(String(body.baseUrl||''))}catch{return {status:400,error:{error:'Invalid provider base URL'}}}
+    if(!['https:','http:'].includes(base.protocol))return {status:400,error:{error:'Unsupported provider URL protocol'}};
+    if(body.apiKey&&(!allowClientKeys||!clientKeyHosts.has(base.hostname.toLowerCase())))return {status:403,error:{error:allowClientKeys?'Browser API keys are disabled or not allowed for this provider':'Browser API keys are disabled by server settings'}};
+    if(!body.apiKey&&configuredAuthToken&&!isAuthorized(req))return {status:401,error:{error:'Unauthorized: valid auth token required'}};
+    if(body.provider==='openai'&&(base.hostname!=='api.openai.com'||base.protocol!=='https:'))return {status:400,error:{error:'OpenAI base URL must be https://api.openai.com'}};
+    if(body.provider==='openrouter'&&(base.hostname!=='openrouter.ai'||base.protocol!=='https:'))return {status:400,error:{error:'OpenRouter base URL must be https://openrouter.ai'}};
+    if(body.provider==='ollama'&&!isAllowedOllamaUrl(base))return {status:400,error:{error:'Ollama requests must target localhost or a private LAN host (not allowed on VPS)'}};
+    if(body.provider==='openai-compatible'){
+      if(base.protocol!=='https:')return {status:400,error:{error:'Custom provider URL must use HTTPS'}};
+      const dynHosts=runtimeMode!=='vps'?(loadSettings(settingsFile).dynamicCustomHosts||[]):[];
+      const effectiveAllowlist=[...customHostEntries,...dynHosts];
+      if(!isAllowedCustomProviderUrl(base,effectiveAllowlist)){
+        const host=base.hostname.toLowerCase(),allowed=effectiveAllowlist.map(entry=>{try{return new URL(String(entry).includes('://')?String(entry):`https://${entry}`).hostname.toLowerCase()}catch{return String(entry).toLowerCase()}});
+        return {status:400,error:{error:`Custom endpoint host is not on the server allow-list: ${host}`,host,allowedHosts:allowed,canAddDynamic:runtimeMode!=='vps'}};
+      }
+    }
+    const useClient=allowClientKeys&&clientKeyHosts.has(base.hostname.toLowerCase())&&!!body.apiKey;
+    const serverKey=getEffectiveServerApiKey();
+    const effectiveKey=useClient?String(body.apiKey):serverKey;
+    if(requireKey&&!effectiveKey&&body.provider!=='ollama')return {status:503,error:{error:missingKeyError}};
+    return {ok:true,base,useClient,effectiveKey,serverKey};
+  }
+  async function discoverProviderModels({provider,base,useClient,effectiveKey,serverKey}){
+    if(provider==='ollama'){
+      const norm=normalizeProviderBase(base);
+      const basePath=norm.pathname.replace(/\/+$/,'');
+      const candidates=basePath.endsWith('/v1')
+        ? [`${norm.origin}${basePath}/models`, `${norm.origin}/api/tags`, `${norm.origin}/models`]
+        : [`${norm.origin}/api/tags`, `${norm.origin}${basePath}/v1/models`, `${norm.origin}${basePath}/models`];
+      let lastStatus=0;
+      for(const endpoint of candidates){
+        try{
+          const r=await fetchWithLocalhostFallback(endpoint,()=>({signal:AbortSignal.timeout(15000),redirect:'error'}));
+          lastStatus=r.status;
+          if(!r.ok)continue;
+          const d=await r.json().catch(()=>({}));
+          const list=[
+            ...(Array.isArray(d.data)?d.data.map(m=>m&&m.id):[]),
+            ...(Array.isArray(d.models)?d.models.map(m=>m&&(m.name||m.id)):[])
+          ].filter(x=>typeof x==='string'&&x);
+          if(list.length)return {ok:true,models:[...new Set(list)]};
+        }catch{}
+      }
+      if(lastStatus>=400)return {status:502,error:'Ollama model list request failed ('+lastStatus+')'};
+      return {status:502,error:'Could not reach Ollama on the Hush host'};
+    }
+    const adapter=providerAdapters[provider];
+    if(adapter&&typeof adapter.listModels==='function'){
+      try{
+        const models=await adapter.listModels({baseUrl:base.toString().replace(/\/$/,''),apiKey:useClient?'':serverKey,clientKey:useClient?effectiveKey:'',fetch:httpFetch});
+        return {ok:true,models:Array.isArray(models)?models.filter(x=>typeof x==='string'):[]};
+      }catch{return {status:502,error:'Could not load models from provider'}}
+    }
+    const endpoint=provider==='openrouter'?'https://openrouter.ai/api/v1/models':normalizeProviderBase(base).toString().replace(/\/$/,'')+'/models';
+    const headers={'content-type':'application/json'};
+    if(effectiveKey)headers.authorization='Bearer '+effectiveKey;
+    try{
+      const r=await httpFetch(endpoint,{headers,signal:AbortSignal.timeout(15000),redirect:'error'});
+      if(!r.ok)return {status:502,error:(provider==='openrouter'?'OpenRouter':'Provider')+' model list request failed ('+r.status+')'};
+      const data=await r.json().catch(()=>({}));
+      return {ok:true,models:Array.isArray(data.data)?data.data.map(m=>m&&m.id).filter(Boolean):[]};
+    }catch{return {status:502,error:provider==='openrouter'?'Could not reach OpenRouter':'Could not reach the provider model-list endpoint'}}
+  }
   function isAuthorized(req){
     if(configuredAuthToken){
       const authHeader = req.headers['authorization'];
@@ -293,7 +373,10 @@ function createServer(options={}) {
     if(!remoteAddressAllowed(req.socket.remoteAddress,lanOnly))return json(res,403,{error:'LAN-only mode: use a private home network address'});
     const url=new URL(req.url,'http://localhost');
     if(req.method==='GET'&&url.pathname==='/health')return json(res,200,{ok:true});
-    if(req.method==='GET'&&url.pathname==='/api/status')return json(res,200,{aiConfigured:Boolean(apiKey),allowClientKeys,runtimeMode,authRequired:Boolean(configuredAuthToken)});
+    if(req.method==='GET'&&url.pathname==='/api/status'){
+      const apiKey=getEffectiveServerApiKey();
+      return json(res,200,{aiConfigured:Boolean(apiKey),serverKeyMasked:apiKey?maskKey(apiKey):'',allowClientKeys,runtimeMode,authRequired:Boolean(configuredAuthToken)});
+    }
     if(url.pathname.startsWith('/api/') && !checkRateLimit(req.socket.remoteAddress)) return json(res, 429, {error: 'Too many requests. Please wait a moment.'});
     if(req.method==='POST'&&url.pathname==='/api/sessions'){
       const sessionId = 'sid_' + crypto.randomBytes(12).toString('hex');
@@ -333,15 +416,26 @@ function createServer(options={}) {
       }
       return json(res,200,{ok:true,id:charId});
     }
-    if(req.method==='GET'&&url.pathname==='/api/settings')return json(res,200,loadSettings(settingsFile));
+    if(req.method==='GET'&&url.pathname==='/api/settings')return json(res,200,redactSettings(loadSettings(settingsFile)));
     if(req.method==='PUT'&&url.pathname==='/api/settings'){
       if(!isAuthorized(req))return json(res, 401, {error: 'Unauthorized: valid auth token required'});
       let body;try{body=await readJson(req, 1024 * 1024)}catch(e){return json(res,e.status||400,{error:e.status===413?'Request too large':'Invalid request'})}
       if(!body||typeof body!=='object'||Array.isArray(body))return json(res,400,{error:'Invalid settings'});
+      if(Object.prototype.hasOwnProperty.call(body,'serverApiKey')&&runtimeMode==='vps'&&!configuredAuthToken){
+        return json(res,403,{error:'Changing server API key from Web UI in VPS mode requires AUTH_TOKEN'});
+      }
       const current=loadSettings(settingsFile);
-      for(const [key,value] of Object.entries(body)){if(!SETTINGS_KEYS.has(key))continue;current[key]=sanitizeSetting(key,value)}
+      for(const [key,value] of Object.entries(body)){
+        if(!SETTINGS_KEYS.has(key))continue;
+        const cleanVal=sanitizeSetting(key,value);
+        if(key==='serverApiKey'&&!cleanVal){delete current.serverApiKey;continue}
+        current[key]=cleanVal;
+      }
       safeWriteJson(settingsFile,current);
-      return json(res,200,current);
+      const out=redactSettings(current);
+      const effective=getEffectiveServerApiKey();
+      out.serverKeyMasked=effective?maskKey(effective):'';
+      return json(res,200,out);
     }
     // Dynamic custom-host allowlist (local/LAN only, disabled in VPS mode)
     if(url.pathname==='/api/custom-hosts'){
@@ -395,9 +489,11 @@ function createServer(options={}) {
         const content=String(m.content||'').slice(0,20000);
         return {role,content};
       }).filter(Boolean);
-      all[charName]={history,messages:history,lastUpdated:Number(body.lastUpdated)||Date.now()};
+      const rawMem=Array.isArray(body.aiMemory)?body.aiMemory:[];
+      const aiMemory=rawMem.slice(-20).map(x=>typeof x==='string'?x.trim().slice(0,280):'').filter(Boolean);
+      all[charName]={history,messages:history,aiMemory,lastUpdated:Number(body.lastUpdated)||Date.now()};
       safeWriteJson(access.targetFile,all);
-      return json(res,200,{ok:true,name:charName,count:history.length,saved:history.length});
+      return json(res,200,{ok:true,name:charName,count:history.length,saved:history.length,memoryCount:aiMemory.length});
     }
     if(req.method==='DELETE'&&url.pathname.startsWith('/api/chats/')){
       const rawName=decodeURIComponent(url.pathname.slice('/api/chats/'.length)).trim();
@@ -410,44 +506,45 @@ function createServer(options={}) {
       return json(res,200,{ok:true,name:charName});
     }
     if(req.method==='POST'&&url.pathname==='/api/models'){
-      if(!checkRateLimit(req.socket.remoteAddress))return json(res,429,{error:'Too many requests. Please wait a moment.'});
       let body;try{body=await readJson(req, 1024 * 1024)}catch(e){return json(res,e.status||400,{error:e.status===413?'Request too large':'Invalid request'})}
-      if(!body||!SAFE_PROVIDERS.has(body.provider))return json(res,400,{error:'Unsupported provider'});
-      if(body.apiKey&&!allowClientKeys)return json(res,403,{error:'Browser API keys are disabled by server settings'});
-      if(!body.apiKey&&configuredAuthToken&&!isAuthorized(req))return json(res,401,{error:'Unauthorized: valid auth token required'});
-      let base;try{base=new URL(String(body.baseUrl||''))}catch{return json(res,400,{error:'Invalid provider base URL'})}
-      if(!['https:','http:'].includes(base.protocol))return json(res,400,{error:'Unsupported provider URL protocol'});
-      if(body.provider==='openai'&&(base.hostname!=='api.openai.com'||base.protocol!=='https:'))return json(res,400,{error:'OpenAI base URL must be https://api.openai.com'});
-      if(body.provider==='openrouter'&&(base.hostname!=='openrouter.ai'||base.protocol!=='https:'))return json(res,400,{error:'OpenRouter base URL must be https://openrouter.ai'});
-      if(body.apiKey&&(!allowClientKeys||!clientKeyHosts.has(base.hostname.toLowerCase())))return json(res,403,{error:'Browser API keys are disabled or not allowed for this provider'});
-      if(body.provider==='ollama'&&(!['localhost','127.0.0.1'].includes(base.hostname)||base.protocol!=='http:'))return json(res,400,{error:'Ollama discovery must use localhost HTTP'});
-      if(body.provider==='openai-compatible'){
-        const dynHosts=runtimeMode!=='vps'?(loadSettings(settingsFile).dynamicCustomHosts||[]):[];
-        const effectiveAllowlist=[...customHostEntries,...dynHosts];
-        if(!isAllowedCustomProviderUrl(base,effectiveAllowlist)){
-          const host=base.hostname.toLowerCase(),allowed=effectiveAllowlist.map(entry=>{try{return new URL(String(entry).includes('://')?String(entry):`https://${entry}`).hostname.toLowerCase()}catch{return String(entry).toLowerCase()}});
-          return json(res,400,{error:`Custom endpoint host is not on the server allow-list: ${host}`,host,allowedHosts:allowed,canAddDynamic:runtimeMode!=='vps'})
-        }
-      }
-      if(body.provider==='ollama'){
-        try{const r=await httpFetch(base.toString().replace(/\/$/,'')+'/models',{signal:AbortSignal.timeout(15000),redirect:'error'});if(!r.ok)return json(res,502,{error:'Ollama model list request failed'});const d=await r.json();return json(res,200,{models:Array.isArray(d.models)?d.models.map(m=>m&&m.name).filter(Boolean):[]})}catch{return json(res,502,{error:'Could not reach Ollama on the Hush host'})}
-      }
-      const adapter=providerAdapters[body.provider];
-      if(adapter&&typeof adapter.listModels==='function'){
-        try{const useClient=allowClientKeys&&clientKeyHosts.has(base.hostname.toLowerCase())&&!!body.apiKey;const models=await adapter.listModels({baseUrl:base.toString().replace(/\/$/,''),apiKey:useClient?'':apiKey,clientKey:useClient?body.apiKey:'',fetch:httpFetch});return json(res,200,{models:Array.isArray(models)?models.filter(x=>typeof x==='string'):[]})}catch{return json(res,502,{error:'Could not load models from provider'})}
-      }
-      if(body.provider==='openrouter'&&allowClientKeys&&clientKeyHosts.has(base.hostname.toLowerCase())){
-        const key=body.apiKey||apiKey;
-        if(!key)return json(res,503,{error:'Configure a server key or enable browser-key mode'});
-        try{const r=await httpFetch('https://openrouter.ai/api/v1/models',{headers:{authorization:'Bearer '+key},signal:AbortSignal.timeout(15000),redirect:'error'});if(!r.ok)return json(res,502,{error:'OpenRouter model list request failed ('+r.status+')'});const d=await r.json();return json(res,200,{models:Array.isArray(d.data)?d.data.map(m=>m&&m.id).filter(Boolean):[]})}catch{return json(res,502,{error:'Could not reach OpenRouter'})}
-      }
-      const useClient=allowClientKeys&&clientKeyHosts.has(base.hostname.toLowerCase())&&!!body.apiKey; if(body.apiKey&&!useClient)return json(res,403,{error:'Browser API keys are disabled or not allowed for this provider'});
-      if(!apiKey&&!useClient)return json(res,503,{error:'No permitted API key is configured for this provider'});
-      try{const headers={'content-type':'application/json','authorization':'Bearer '+(useClient?body.apiKey:apiKey)};const r=await httpFetch(base.toString().replace(/\/$/,'')+'/models',{headers,signal:AbortSignal.timeout(15000),redirect:'error'});if(!r.ok)return json(res,502,{error:'Provider model-list request failed ('+r.status+')'});const data=await r.json();return json(res,200,{models:Array.isArray(data.data)?data.data.map(m=>m&&m.id).filter(Boolean):[]})}catch{return json(res,502,{error:'Could not reach the provider model-list endpoint'})}
+      const resolved=resolveProviderRequest(req,body,{requireKey:true,missingKeyError:'No permitted API key is configured for this provider'});
+      if(!resolved.ok)return json(res,resolved.status,resolved.error);
+      const discovered=await discoverProviderModels({provider:body.provider,...resolved});
+      if(!discovered.ok)return json(res,discovered.status||502,{error:discovered.error||'Could not load models from provider'});
+      return json(res,200,{models:discovered.models});
     }
-    if(req.method==='POST'&&url.pathname==='/api/characters'){
+    if(req.method==='POST'&&url.pathname==='/api/test-connection'){
+      let body;try{body=await readJson(req, 1024 * 1024)}catch(e){return json(res,e.status||400,{error:e.status===413?'Request too large':'Invalid request'})}
+      const resolved=resolveProviderRequest(req,body,{requireKey:true,missingKeyError:'No permitted API key is configured for this provider'});
+      if(!resolved.ok)return json(res,resolved.status,{ok:false,...resolved.error});
+      const started=Date.now();
+      const model=String(body.model||'').trim().slice(0,150);
+      const discovered=await discoverProviderModels({provider:body.provider,...resolved});
+      if(discovered.ok){
+        return json(res,200,{ok:true,mode:'models',latencyMs:Date.now()-started,models:discovered.models,modelCount:discovered.models.length,model:model||discovered.models[0]||''});
+      }
+      if(!model){
+        return json(res,discovered.status||502,{ok:false,error:discovered.error||'Connection test failed'});
+      }
+      try{
+        const endpoint=body.provider==='ollama'
+          ? buildOllamaChatEndpoint(resolved.base)
+          : normalizeProviderBase(resolved.base).toString().replace(/\/$/,'')+'/chat/completions';
+        const headers={'content-type':'application/json'};
+        if(resolved.effectiveKey)headers.authorization='Bearer '+resolved.effectiveKey;
+        const makeInit=()=>({method:'POST',headers,body:JSON.stringify({model,messages:[{role:'user',content:'Reply with OK'}],max_tokens:8,temperature:0}),signal:AbortSignal.timeout(15000),redirect:'error'});
+        const upstream=body.provider==='ollama'?await fetchWithLocalhostFallback(endpoint,makeInit):await httpFetch(endpoint,makeInit());
+        const data=await upstream.json().catch(()=>({}));
+        if(!upstream.ok)return json(res,502,{ok:false,error:'Provider returned HTTP '+upstream.status});
+        const raw=data&&data.choices&&data.choices[0]&&data.choices[0].message&&data.choices[0].message.content;
+        if(typeof raw!=='string')return json(res,502,{ok:false,error:'Provider response format was not recognized'});
+        return json(res,200,{ok:true,mode:'chat',latencyMs:Date.now()-started,models:[],modelCount:0,model});
+      }catch(e){
+        return json(res,502,{ok:false,error:e.name==='TimeoutError'?'Connection timed out':'Could not connect to provider'});
+      }
+    }
+    async function handleSaveCharacter(targetId=''){
       if(configuredAuthToken && !isAuthorized(req))return json(res, 401, {error: 'Unauthorized: valid auth token required'});
-      if(!checkRateLimit(req.socket.remoteAddress))return json(res, 429, {error: 'Too many requests. Please wait a moment.'});
       try{
         const c=await readJson(req, MAX_BODY);
         if(!c||typeof c.name!=='string'||!c.name.trim())return json(res,400,{error:'Character name is required'});
@@ -477,8 +574,12 @@ function createServer(options={}) {
           const filename=crypto.randomBytes(16).toString('hex')+'.'+ext;
           fs.writeFileSync(path.join(uploadsDir,filename),bytes,{flag:'wx'});avatarUrl='/uploads/'+filename;
         }
-        const clean={id:typeof c.id==='string'?c.id:crypto.randomUUID(),name:c.name.trim().slice(0,80),role:String(c.role||'').slice(0,300),appearance:String(c.appearance||'').slice(0,1000),desc:String(c.desc||'').slice(0,1500),genre:Array.isArray(c.genre)?c.genre.filter(x=>typeof x==='string').slice(0,10):[],adult:c.adult===true,systemPrompt:String(c.systemPrompt||'').slice(0,10000),greeting:String(c.greeting||'').slice(0,3000),imageUrl:imageUrl||String(c.imageUrl||'').slice(0,500),avatarUrl:avatarUrl||String(c.avatarUrl||'').slice(0,500),updatedAt:new Date().toISOString()};
-        const all=loadCharacters(charactersFile);const i=all.findIndex(x=>x.id===clean.id||x.name===clean.name);
+        const resolvedId=targetId||(typeof c.id==='string'&&c.id.trim()?c.id.trim():crypto.randomUUID());
+        const clean={id:resolvedId,name:c.name.trim().slice(0,80),role:String(c.role||'').slice(0,300),appearance:String(c.appearance||'').slice(0,1000),desc:String(c.desc||'').slice(0,1500),genre:Array.isArray(c.genre)?c.genre.filter(x=>typeof x==='string').slice(0,10):[],adult:c.adult===true,systemPrompt:String(c.systemPrompt||'').slice(0,10000),greeting:String(c.greeting||'').slice(0,3000),imageUrl:imageUrl||String(c.imageUrl||'').slice(0,500),avatarUrl:avatarUrl||String(c.avatarUrl||'').slice(0,500),updatedAt:new Date().toISOString()};
+        const all=loadCharacters(charactersFile);
+        const i=targetId
+          ? all.findIndex(x=>x.id===targetId||x.name===targetId)
+          : all.findIndex(x=>x.id===clean.id||x.name===clean.name);
         if(i>=0){
           const prevImg=all[i].imageUrl;
           if(prevImg&&prevImg!==clean.imageUrl&&prevImg.startsWith('/uploads/')){
@@ -492,41 +593,45 @@ function createServer(options={}) {
             const stillUsed=all.some((item,idx)=>idx!==i&&((item.imageUrl&&item.imageUrl.includes(oldFile))||(item.avatarUrl&&item.avatarUrl.includes(oldFile))));
             if(!stillUsed){try{fs.unlinkSync(path.join(uploadsDir,oldFile))}catch{}}
           }
-          all[i]={...all[i],...clean};
-        }else all.unshift(clean);
+          all[i]={...all[i],...clean,id:all[i].id||clean.id};
+          safeWriteJson(charactersFile,all);return json(res,targetId?200:201,all[i]);
+        }
+        if(targetId)return json(res,404,{error:'Character not found'});
+        all.unshift(clean);
         safeWriteJson(charactersFile,all);return json(res,201,clean);
       }catch(e){if(!res.headersSent)return json(res,e.status||400,{error:e.status===413?'Request too large':e.status===400?e.message:'Could not save character'});return}
     }
+    if(req.method==='POST'&&url.pathname==='/api/characters'){
+      return handleSaveCharacter();
+    }
+    if(req.method==='PUT'&&url.pathname.startsWith('/api/characters/')){
+      const charId=decodeURIComponent(url.pathname.slice('/api/characters/'.length)).trim();
+      if(!charId)return json(res,400,{error:'Character ID required'});
+      return handleSaveCharacter(charId);
+    }
     if(req.method==='POST'&&url.pathname==='/api/chat'){
-      if(!checkRateLimit(req.socket.remoteAddress))return json(res,429,{error:'Too many requests. Please wait a moment before sending more messages.'});
       let body;try{body=await readJson(req, 1024 * 1024)}catch(e){return json(res,e.status||400,{error:e.status===413?'Request too large':'Invalid request'})}
-      if(!body||!SAFE_PROVIDERS.has(body.provider))return json(res,400,{error:'Unsupported provider adapter'});
-      let base;try{base=new URL(String(body.baseUrl||''))}catch{return json(res,400,{error:'Invalid provider base URL'})}
-      if(body.apiKey&&(!allowClientKeys||!clientKeyHosts.has(base.hostname.toLowerCase())))return json(res,403,{error:'Browser API keys are disabled or not allowed for this provider'});
-      if(!body.apiKey&&configuredAuthToken&&!isAuthorized(req))return json(res,401,{error:'Unauthorized: valid auth token required'});
-      const allowLocal=body.provider==='ollama';
-      if(base.protocol!=='https:'&&!(allowLocal&&['localhost','127.0.0.1'].includes(base.hostname)&&base.protocol==='http:'))return json(res,400,{error:'Provider URL must use HTTPS (HTTP allowed for local Ollama only)'});
-      if(body.provider==='openrouter'&&(base.hostname!=='openrouter.ai'||base.protocol!=='https:'))return json(res,400,{error:'OpenRouter requests must use https://openrouter.ai'});
-      if(body.provider==='openai'&&(base.hostname!=='api.openai.com'||base.protocol!=='https:'))return json(res,400,{error:'OpenAI requests must use https://api.openai.com'});
-      if(body.provider==='ollama'&&(!allowLocal||!['localhost','127.0.0.1'].includes(base.hostname)))return json(res,400,{error:'Ollama adapter is limited to local host URLs'});
+      const resolved=resolveProviderRequest(req,body,{requireKey:true,missingKeyError:'AI provider not configured on the server.'});
+      if(!resolved.ok)return json(res,resolved.status,resolved.error);
       if(!Array.isArray(body.messages)||body.messages.length>80||body.messages.some(m=>!m||!['system','user','assistant'].includes(m.role)||typeof m.content!=='string'||m.content.length>20000))return json(res,400,{error:'Invalid messages'});
       const model=String(body.model||'').trim().slice(0,150);if(!model)return json(res,400,{error:'Model is required'});
-      if(!['openai-compatible','openai','openrouter','ollama'].includes(body.provider))return json(res,400,{error:'Unsupported provider'});
-      if(body.provider==='openai-compatible'){
-        const dynHosts=runtimeMode!=='vps'?(loadSettings(settingsFile).dynamicCustomHosts||[]):[];
-        const effectiveAllowlist=[...customHostEntries,...dynHosts];
-        if(!isAllowedCustomProviderUrl(base,effectiveAllowlist)){
-          const host=base.hostname.toLowerCase(),allowed=effectiveAllowlist.map(entry=>{try{return new URL(String(entry).includes('://')?String(entry):`https://${entry}`).hostname.toLowerCase()}catch{return String(entry).toLowerCase()}});
-          return json(res,400,{error:`Custom endpoint host is not on the server allow-list: ${host}`,host,allowedHosts:allowed,canAddDynamic:runtimeMode!=='vps'})
-        }
-      }
-      const requestApiKey=body.apiKey?(allowClientKeys&&clientKeyHosts.has(base.hostname.toLowerCase())?body.apiKey:''):(options.apiKey!==undefined?options.apiKey:process.env.AI_API_KEY||'');
-      if(!requestApiKey&&body.provider!=='ollama')return json(res,503,{error:'AI provider not configured on the server.'});
       const limits=options.contextLimits||{};
-      const compact=buildCompactContext({system:body.messages[0]?.role==='system'?body.messages[0].content:'',history:body.messages[0]?.role==='system'?body.messages.slice(1):body.messages,maxInputTokens:Number(limits.maxInputTokens||process.env.MAX_INPUT_TOKENS||1800),memoryChars:Number(limits.memoryChars||process.env.MEMORY_SUMMARY_CHARS||900)});
-      const endpoint=body.provider==='ollama'?'http://127.0.0.1:11434/v1/chat/completions':base.toString().replace(/\/$/,'')+'/chat/completions';
+      const defaultMaxInput=Number(process.env.MAX_INPUT_TOKENS||1800);
+      const clientRequestedTokens=Number(body.maxInputTokens);
+      const maxInputTokens=limits.maxInputTokens!==undefined
+        ? Number(limits.maxInputTokens)
+        : (Number.isFinite(clientRequestedTokens)&&clientRequestedTokens>0?Math.max(400,Math.min(8000,clientRequestedTokens)):defaultMaxInput);
+      const systemText=body.messages.filter(m=>m.role==='system').map(m=>m.content).filter(Boolean).join('\n\n');
+      const historyTurns=body.messages.filter(m=>m.role!=='system');
+      const compact=buildCompactContext({system:systemText,history:historyTurns,maxInputTokens,memoryChars:Number(limits.memoryChars||process.env.MEMORY_SUMMARY_CHARS||900)});
+      const endpoint=body.provider==='ollama'
+        ? buildOllamaChatEndpoint(resolved.base)
+        : normalizeProviderBase(resolved.base).toString().replace(/\/$/,'')+'/chat/completions';
+      const headers={'content-type':'application/json'};
+      if(resolved.effectiveKey)headers.authorization='Bearer '+resolved.effectiveKey;
       try{
-        const upstream=await httpFetch(endpoint,{method:'POST',headers:{'content-type':'application/json','authorization':'Bearer '+requestApiKey},body:JSON.stringify({model,messages:compact.messages,temperature:Math.max(0,Math.min(2,Number(body.temperature??0.8))),max_tokens:Math.max(64,Math.min(1200,Number(body.maxTokens||process.env.MAX_OUTPUT_TOKENS||300))) }),signal:AbortSignal.timeout(60000),redirect:'error'});
+        const makeInit=()=>({method:'POST',headers,body:JSON.stringify({model,messages:compact.messages,temperature:Math.max(0,Math.min(2,Number(body.temperature??0.8))),max_tokens:Math.max(64,Math.min(1200,Number(body.maxTokens||process.env.MAX_OUTPUT_TOKENS||300))) }),signal:AbortSignal.timeout(60000),redirect:'error'});
+        const upstream=body.provider==='ollama'?await fetchWithLocalhostFallback(endpoint,makeInit):await httpFetch(endpoint,makeInit());
         const data=await upstream.json().catch(()=>({}));if(!upstream.ok)return json(res,502,{error:'Provider request failed ('+upstream.status+'). Check server logs/provider settings.'});
         const choice=data&&data.choices&&data.choices[0];
         const raw=choice&&choice.message&&choice.message.content;
@@ -539,8 +644,21 @@ function createServer(options={}) {
       const name=path.basename(url.pathname);if(!/^[a-f0-9]{32}\.(png|jpg|webp)$/.test(name))return json(res,404,{error:'Not found'});
       const file=path.join(uploadsDir,name);try{const stat=fs.statSync(file);res.writeHead(200,{'content-type':MIME[path.extname(file)],'content-length':stat.size,'cache-control':'public, max-age=31536000, immutable','x-content-type-options':'nosniff','content-security-policy':"default-src 'none'; sandbox",'referrer-policy':'no-referrer'});return fs.createReadStream(file).pipe(res)}catch{return json(res,404,{error:'Not found'})}
     }
-    if(req.method==='GET'&&url.pathname==='/'){
-      const file=path.join(root,'roleplay-ai-prototype-v3.html');try{const stat=fs.statSync(file);res.writeHead(200,{'content-type':MIME['.html'],'content-length':stat.size,'cache-control':'no-cache','x-content-type-options':'nosniff','referrer-policy':'no-referrer','x-frame-options':'SAMEORIGIN','content-security-policy':"default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https: http:; media-src 'self' data: blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'self';"});return fs.createReadStream(file).pipe(res)}catch{return json(res,500,{error:'UI file missing'})}
+    if(req.method==='GET'&&(url.pathname.startsWith('/css/')||url.pathname.startsWith('/js/')||url.pathname.startsWith('/locales/'))){
+      let relPath='';
+      try{relPath=decodeURIComponent(url.pathname).replace(/^\/+/,'')}catch{return json(res,400,{error:'Bad path'})}
+      const target=path.resolve(publicDir,relPath);
+      if(!target.startsWith(publicDir+path.sep))return json(res,403,{error:'Forbidden'});
+      try{
+        const stat=fs.statSync(target);
+        if(!stat.isFile())return json(res,404,{error:'Not found'});
+        const ctype=MIME[path.extname(target)]||'application/octet-stream';
+        res.writeHead(200,{'content-type':ctype,'content-length':stat.size,'cache-control':'no-cache','x-content-type-options':'nosniff','referrer-policy':'no-referrer'});
+        return fs.createReadStream(target).pipe(res);
+      }catch{return json(res,404,{error:'Not found'})}
+    }
+    if(req.method==='GET'&&(url.pathname==='/'||url.pathname==='/index.html')){
+      const file=path.join(publicDir,'index.html');try{const stat=fs.statSync(file);res.writeHead(200,{'content-type':MIME['.html'],'content-length':stat.size,'cache-control':'no-cache','x-content-type-options':'nosniff','referrer-policy':'no-referrer','x-frame-options':'SAMEORIGIN','content-security-policy':"default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https: http:; media-src 'self' data: blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'self';"});return fs.createReadStream(file).pipe(res)}catch{return json(res,500,{error:'UI file missing'})}
     }
     return json(res,404,{error:'Not found'});
   });

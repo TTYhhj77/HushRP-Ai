@@ -1,1 +1,11 @@
-(empty
+node_modules/
+.env
+.env.*
+!.env.example
+data/*.json
+data/uploads/*
+!data/uploads/.gitkeep
+data/sessions/
+*.log
+.DS_Store
+Thumbs.db
