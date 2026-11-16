@@ -83,9 +83,249 @@ function compressHistory(history,maxMessages=12){
   return out;
 }
 
-// ── Sound Effects ─────────────────────────────────────────────────────────────
+// ── Sound Effects & Ambient Soundscape ────────────────────────────────────────
 let audioCtx = null;
 let soundOn = localStorage.getItem('hush-sound') !== 'off';
+const AMBIENT_SCENES = ['off', 'rain', 'fireplace', 'night', 'cafe'];
+let ambientScene = (() => {
+  try {
+    const saved = localStorage.getItem('hush-ambient-scene') || 'off';
+    return AMBIENT_SCENES.includes(saved) ? saved : 'off';
+  } catch {
+    return 'off';
+  }
+})();
+let ambientVolume = (() => {
+  try {
+    const n = Number(localStorage.getItem('hush-ambient-volume') ?? 35);
+    return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : 35;
+  } catch {
+    return 35;
+  }
+})();
+let ambientNodes = null;
+
+function ensureAudioContext() {
+  try {
+    const Ctor = (typeof window !== 'undefined' && (window.AudioContext || window.webkitAudioContext)) || null;
+    if (!Ctor) return null;
+    audioCtx = audioCtx || new Ctor();
+    if (audioCtx.state === 'suspended' && typeof audioCtx.resume === 'function') {
+      audioCtx.resume().catch(() => {});
+    }
+    return audioCtx;
+  } catch {
+    return null;
+  }
+}
+
+function syncAmbientUi() {
+  if (typeof document === 'undefined') return;
+  const sel = document.getElementById('ambientSelect');
+  if (sel) sel.value = ambientScene;
+
+  const vol = document.getElementById('ambientVolume');
+  if (vol) vol.value = String(ambientVolume);
+
+  const volVal = document.getElementById('ambientVolumeValue');
+  if (volVal) volVal.textContent = `${Math.round(ambientVolume)}%`;
+
+  const shortText = t('ambient_btn_short_' + ambientScene, ambientScene === 'off' ? 'บรรยากาศ: ปิด' : ambientScene);
+  const fullText = t('ambient_' + ambientScene, shortText);
+  const isPlaying = ambientScene !== 'off' && soundOn;
+
+  const chatBtn = document.getElementById('ambientChatBtn');
+  const chatLabel = document.getElementById('ambientChatLabel');
+  if (chatLabel) chatLabel.textContent = shortText;
+  if (chatBtn && chatBtn.classList) chatBtn.classList.toggle('active', isPlaying);
+
+  const drawerLabel = document.getElementById('drawerAmbientLabel');
+  if (drawerLabel) drawerLabel.textContent = fullText;
+  const drawerBtn = document.getElementById('drawerAmbientBtn');
+  if (drawerBtn && drawerBtn.classList) drawerBtn.classList.toggle('active', isPlaying);
+}
+
+function stopAmbientNodes() {
+  if (!ambientNodes) return;
+  for (const node of ambientNodes.sources || []) {
+    try { node.stop?.(); } catch {}
+    try { node.disconnect?.(); } catch {}
+  }
+  for (const node of ambientNodes.cleanup || []) {
+    try { node.disconnect?.(); } catch {}
+  }
+  ambientNodes = null;
+}
+
+function createNoiseLoopSource(ctx, mode = 'pink') {
+  if (typeof ctx.createBuffer !== 'function' || typeof ctx.createBufferSource !== 'function') return null;
+  const durationSec = 2.5;
+  const length = Math.max(1024, Math.floor((ctx.sampleRate || 44100) * durationSec));
+  const buffer = ctx.createBuffer(1, length, ctx.sampleRate || 44100);
+  const data = buffer.getChannelData(0);
+  let b0 = 0, b1 = 0, b2 = 0, brown = 0;
+  for (let i = 0; i < length; i++) {
+    const white = Math.random() * 2 - 1;
+    if (mode === 'brown') {
+      brown = (brown + 0.02 * white) / 1.02;
+      data[i] = brown * 3.2;
+    } else if (mode === 'crackle') {
+      data[i] = Math.random() < 0.0022 ? (Math.random() * 2 - 1) * 0.9 : white * 0.025;
+    } else {
+      b0 = 0.99765 * b0 + white * 0.099046;
+      b1 = 0.963 * b1 + white * 0.2965164;
+      b2 = 0.57 * b2 + white * 1.0526913;
+      data[i] = (b0 + b1 + b2 + white * 0.1848) * 0.16;
+    }
+  }
+  const src = ctx.createBufferSource();
+  src.buffer = buffer;
+  src.loop = true;
+  return src;
+}
+
+function startAmbientEngine(scene) {
+  stopAmbientNodes();
+  if (!soundOn || !scene || scene === 'off') return;
+  const ctx = ensureAudioContext();
+  if (!ctx || typeof ctx.createGain !== 'function') return;
+
+  try {
+    const master = ctx.createGain();
+    const level = (ambientVolume / 100) * 0.16;
+    master.gain.setValueAtTime(0.0001, ctx.currentTime);
+    master.gain.linearRampToValueAtTime(Math.max(0.0001, level), ctx.currentTime + 0.65);
+    master.connect(ctx.destination);
+
+    const sources = [];
+    const cleanup = [master];
+    const hasFilter = typeof ctx.createBiquadFilter === 'function';
+
+    const attachNoise = (mode, filterType, freq, q = 0.7, subGainVal = 0.6) => {
+      const src = createNoiseLoopSource(ctx, mode);
+      if (!src) return null;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(subGainVal, ctx.currentTime);
+      if (hasFilter) {
+        const f = ctx.createBiquadFilter();
+        f.type = filterType;
+        f.frequency.setValueAtTime(freq, ctx.currentTime);
+        if (f.Q) f.Q.setValueAtTime(q, ctx.currentTime);
+        src.connect(f);
+        f.connect(g);
+        cleanup.push(f, g);
+        g.connect(master);
+        src.start();
+        sources.push(src);
+        return { src, filter: f, gain: g };
+      }
+      src.connect(g);
+      g.connect(master);
+      cleanup.push(g);
+      src.start();
+      sources.push(src);
+      return { src, filter: null, gain: g };
+    };
+
+    const attachPad = (freqs, oscType = 'sine', padGainVal = 0.06) => {
+      if (typeof ctx.createOscillator !== 'function') return;
+      for (const freq of freqs) {
+        const osc = ctx.createOscillator();
+        const g = ctx.createGain();
+        osc.type = oscType;
+        osc.frequency.setValueAtTime(freq, ctx.currentTime);
+        g.gain.setValueAtTime(padGainVal, ctx.currentTime);
+        if (hasFilter) {
+          const lp = ctx.createBiquadFilter();
+          lp.type = 'lowpass';
+          lp.frequency.setValueAtTime(900, ctx.currentTime);
+          osc.connect(lp);
+          lp.connect(g);
+          cleanup.push(lp);
+        } else {
+          osc.connect(g);
+        }
+        g.connect(master);
+        osc.start();
+        sources.push(osc);
+        cleanup.push(g);
+      }
+    };
+
+    if (scene === 'rain') {
+      const mid = attachNoise('pink', 'bandpass', 980, 0.55, 0.52);
+      attachNoise('brown', 'lowpass', 320, 0.7, 0.58);
+      if (mid && mid.filter && typeof ctx.createOscillator === 'function') {
+        const lfo = ctx.createOscillator();
+        const lfoGain = ctx.createGain();
+        lfo.frequency.setValueAtTime(0.16, ctx.currentTime);
+        lfoGain.gain.setValueAtTime(180, ctx.currentTime);
+        lfo.connect(lfoGain);
+        lfoGain.connect(mid.filter.frequency);
+        lfo.start();
+        sources.push(lfo);
+        cleanup.push(lfoGain);
+      }
+    } else if (scene === 'fireplace') {
+      attachNoise('brown', 'lowpass', 165, 0.8, 0.85);
+      attachNoise('crackle', 'bandpass', 2400, 1.4, 0.35);
+    } else if (scene === 'night') {
+      const breeze = attachNoise('pink', 'bandpass', 410, 1.2, 0.45);
+      if (breeze && breeze.filter && typeof ctx.createOscillator === 'function') {
+        const lfo = ctx.createOscillator();
+        const lfoGain = ctx.createGain();
+        lfo.frequency.setValueAtTime(0.11, ctx.currentTime);
+        lfoGain.gain.setValueAtTime(130, ctx.currentTime);
+        lfo.connect(lfoGain);
+        lfoGain.connect(breeze.filter.frequency);
+        lfo.start();
+        sources.push(lfo);
+        cleanup.push(lfoGain);
+      }
+      attachPad([196.0, 293.66], 'sine', 0.055);
+    } else if (scene === 'cafe') {
+      attachNoise('pink', 'lowpass', 380, 0.7, 0.45);
+      attachPad([220.0, 261.63, 329.63, 392.0], 'triangle', 0.032);
+    }
+
+    ambientNodes = { master, sources, cleanup };
+  } catch {
+    stopAmbientNodes();
+  }
+}
+
+function setAmbientScene(scene, quiet = false) {
+  const next = AMBIENT_SCENES.includes(scene) ? scene : 'off';
+  ambientScene = next;
+  try { localStorage.setItem('hush-ambient-scene', ambientScene); } catch {}
+  if (ambientScene === 'off' || !soundOn) stopAmbientNodes();
+  else startAmbientEngine(ambientScene);
+  syncAmbientUi();
+  if (!quiet) {
+    playSfx('toggle');
+    const sceneLabel = t('ambient_' + ambientScene, ambientScene);
+    showToast(t('toast_ambient_changed', 'เปลี่ยนเสียงบรรยากาศเป็น: {scene}').replace('{scene}', sceneLabel));
+  }
+}
+
+function cycleAmbientScene() {
+  const idx = AMBIENT_SCENES.indexOf(ambientScene);
+  const next = AMBIENT_SCENES[(idx + 1) % AMBIENT_SCENES.length];
+  setAmbientScene(next, false);
+}
+
+function setAmbientVolume(val) {
+  const parsed = Math.max(0, Math.min(100, Math.round(Number(val) || 0)));
+  ambientVolume = parsed;
+  try { localStorage.setItem('hush-ambient-volume', String(ambientVolume)); } catch {}
+  syncAmbientUi();
+  if (ambientNodes && ambientNodes.master && audioCtx) {
+    try {
+      const targetGain = Math.max(0.0001, (ambientVolume / 100) * 0.16);
+      ambientNodes.master.gain.setValueAtTime(targetGain, audioCtx.currentTime);
+    } catch {}
+  }
+}
 
 function syncSoundButtons() {
   const label = soundOn ? t('btn_sound_on', 'ปิดเสียงเอฟเฟกต์') : t('btn_sound_off', 'เปิดเสียงเอฟเฟกต์');
@@ -110,18 +350,25 @@ function toggleSound(setTo) {
   soundOn = next;
   try { localStorage.setItem('hush-sound', soundOn ? 'on' : 'off'); } catch {}
   syncSoundButtons();
+  if (!soundOn) {
+    stopAmbientNodes();
+  } else if (ambientScene !== 'off') {
+    startAmbientEngine(ambientScene);
+  }
+  syncAmbientUi();
   if (changed && soundOn) playSfx('toggle');
 }
 
 function initSoundButton() {
   syncSoundButtons();
+  syncAmbientUi();
 }
 
 function playTone(ctx, opts) {
   try {
     const startAt = ctx.currentTime + (opts.delay || 0);
     const dur = opts.duration || 0.08;
-    const attack = Math.min(opts.attack || 0.008, dur * 0.4);
+    const attack = Math.min(opts.attack || 0.01, dur * 0.4);
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.type = opts.type || 'sine';
@@ -129,55 +376,73 @@ function playTone(ctx, opts) {
     if (opts.freqEnd && opts.freqEnd !== opts.freq) {
       osc.frequency.exponentialRampToValueAtTime(Math.max(40, opts.freqEnd), startAt + dur);
     }
+    const peak = opts.gainPeak || 0.032;
     gain.gain.setValueAtTime(0.0001, startAt);
-    gain.gain.linearRampToValueAtTime(opts.gainPeak || 0.032, startAt + attack);
+    gain.gain.linearRampToValueAtTime(peak, startAt + attack);
     gain.gain.exponentialRampToValueAtTime(0.0001, startAt + dur);
-    osc.connect(gain);
+    if (typeof ctx.createBiquadFilter === 'function') {
+      const lp = ctx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.setValueAtTime(opts.cutoff || 1950, startAt);
+      osc.connect(lp);
+      lp.connect(gain);
+    } else {
+      osc.connect(gain);
+    }
     gain.connect(ctx.destination);
     osc.start(startAt);
-    osc.stop(startAt + dur + 0.015);
+    osc.stop(startAt + dur + 0.02);
+
+    if (opts.harmonic) {
+      const harm = ctx.createOscillator();
+      const hGain = ctx.createGain();
+      harm.type = 'sine';
+      harm.frequency.setValueAtTime(opts.freq * 2, startAt);
+      hGain.gain.setValueAtTime(0.0001, startAt);
+      hGain.gain.linearRampToValueAtTime(peak * 0.22, startAt + attack);
+      hGain.gain.exponentialRampToValueAtTime(0.0001, startAt + dur * 0.85);
+      harm.connect(hGain);
+      hGain.connect(ctx.destination);
+      harm.start(startAt);
+      harm.stop(startAt + dur + 0.02);
+    }
   } catch {}
 }
 
 function playSfx(kind = 'tap') {
   if (!soundOn) return;
   try {
-    const Ctor = window.AudioContext || window.webkitAudioContext;
-    if (!Ctor) return;
-    audioCtx = audioCtx || new Ctor();
-    if (audioCtx.state === 'suspended' && typeof audioCtx.resume === 'function') {
-      audioCtx.resume().catch(() => {});
-    }
-    if (typeof audioCtx.createOscillator !== 'function' || typeof audioCtx.createGain !== 'function') return;
+    const ctx = ensureAudioContext();
+    if (!ctx || typeof ctx.createOscillator !== 'function' || typeof ctx.createGain !== 'function') return;
 
     if (kind === 'send') {
-      playTone(audioCtx, { freq: 523.25, duration: 0.09, gainPeak: 0.028, delay: 0 });
-      playTone(audioCtx, { freq: 659.25, duration: 0.11, gainPeak: 0.026, delay: 0.04 });
-      playTone(audioCtx, { freq: 783.99, duration: 0.14, gainPeak: 0.022, delay: 0.08 });
+      playTone(ctx, { freq: 523.25, duration: 0.095, gainPeak: 0.024, delay: 0, harmonic: true });
+      playTone(ctx, { freq: 659.25, duration: 0.115, gainPeak: 0.022, delay: 0.042, harmonic: true });
+      playTone(ctx, { freq: 783.99, duration: 0.16, gainPeak: 0.019, delay: 0.085, harmonic: true });
     } else if (kind === 'receive' || kind === 'success') {
-      playTone(audioCtx, { freq: 587.33, duration: 0.14, gainPeak: 0.028, delay: 0 });
-      playTone(audioCtx, { freq: 880, duration: 0.22, gainPeak: 0.026, delay: 0.065 });
+      playTone(ctx, { freq: 587.33, duration: 0.14, gainPeak: 0.024, delay: 0, harmonic: true });
+      playTone(ctx, { freq: 880, duration: 0.24, gainPeak: 0.022, delay: 0.068, harmonic: true });
     } else if (kind === 'nav') {
-      playTone(audioCtx, { freq: 392, duration: 0.07, gainPeak: 0.02, delay: 0 });
-      playTone(audioCtx, { freq: 587.33, duration: 0.1, gainPeak: 0.022, delay: 0.03 });
+      playTone(ctx, { freq: 392, duration: 0.075, gainPeak: 0.017, delay: 0 });
+      playTone(ctx, { freq: 587.33, duration: 0.11, gainPeak: 0.019, delay: 0.032 });
     } else if (kind === 'favorite') {
-      playTone(audioCtx, { freq: 739.99, duration: 0.09, gainPeak: 0.026, delay: 0 });
-      playTone(audioCtx, { freq: 987.77, duration: 0.16, gainPeak: 0.025, delay: 0.045 });
+      playTone(ctx, { freq: 739.99, duration: 0.09, gainPeak: 0.022, delay: 0, harmonic: true });
+      playTone(ctx, { freq: 987.77, duration: 0.18, gainPeak: 0.022, delay: 0.045, harmonic: true });
     } else if (kind === 'theme') {
-      playTone(audioCtx, { freq: 293.66, duration: 0.18, gainPeak: 0.02, delay: 0 });
-      playTone(audioCtx, { freq: 440, duration: 0.2, gainPeak: 0.022, delay: 0.035 });
-      playTone(audioCtx, { freq: 659.25, duration: 0.24, gainPeak: 0.02, delay: 0.075 });
+      playTone(ctx, { freq: 293.66, duration: 0.18, gainPeak: 0.018, delay: 0 });
+      playTone(ctx, { freq: 440, duration: 0.21, gainPeak: 0.019, delay: 0.035, harmonic: true });
+      playTone(ctx, { freq: 659.25, duration: 0.26, gainPeak: 0.018, delay: 0.075, harmonic: true });
     } else if (kind === 'modalOpen') {
-      playTone(audioCtx, { freq: 340, freqEnd: 520, duration: 0.095, gainPeak: 0.024 });
+      playTone(ctx, { freq: 360, freqEnd: 540, duration: 0.1, gainPeak: 0.02, harmonic: true });
     } else if (kind === 'modalClose') {
-      playTone(audioCtx, { freq: 480, freqEnd: 310, duration: 0.085, gainPeak: 0.022 });
+      playTone(ctx, { freq: 470, freqEnd: 310, duration: 0.085, gainPeak: 0.018 });
     } else if (kind === 'toggle') {
-      playTone(audioCtx, { freq: 580, freqEnd: 740, type: 'triangle', duration: 0.06, gainPeak: 0.024 });
+      playTone(ctx, { freq: 580, freqEnd: 740, type: 'triangle', duration: 0.06, gainPeak: 0.02, cutoff: 1650 });
     } else if (kind === 'delete' || kind === 'error') {
-      playTone(audioCtx, { freq: 240, freqEnd: 175, type: 'triangle', duration: 0.11, gainPeak: 0.028, delay: 0 });
-      playTone(audioCtx, { freq: 185, freqEnd: 135, type: 'triangle', duration: 0.13, gainPeak: 0.022, delay: 0.075 });
+      playTone(ctx, { freq: 240, freqEnd: 175, type: 'triangle', duration: 0.11, gainPeak: 0.023, delay: 0, cutoff: 1200 });
+      playTone(ctx, { freq: 185, freqEnd: 135, type: 'triangle', duration: 0.13, gainPeak: 0.018, delay: 0.075, cutoff: 1000 });
     } else {
-      playTone(audioCtx, { freq: 510, freqEnd: 370, type: 'triangle', duration: 0.048, gainPeak: 0.02 });
+      playTone(ctx, { freq: 500, freqEnd: 380, type: 'triangle', duration: 0.045, gainPeak: 0.016, cutoff: 1500 });
     }
   } catch (e) {}
 }
@@ -188,7 +453,7 @@ function previewSound() {
   setTimeout(() => playSfx('receive'), 260);
 }
 
-const SPECIALIZED_SFX_SELECTOR = '.send,.heart,.theme-card,.theme-dot-btn,#themeToggleBtn,#soundToggle,#soundToggleChat,#drawerSoundBtn,#settingsSoundToggle,[data-view],[data-mobile-view]';
+const SPECIALIZED_SFX_SELECTOR = '.send,.heart,.theme-card,.theme-dot-btn,#themeToggleBtn,#soundToggle,#soundToggleChat,#drawerSoundBtn,#settingsSoundToggle,#ambientChatBtn,#drawerAmbientBtn,#continueStoryBtn,[data-view],[data-mobile-view]';
 document.addEventListener('click', e => {
   if (!e.target || !e.target.closest) return;
   if (e.target.closest(SPECIALIZED_SFX_SELECTOR)) return;
@@ -263,6 +528,40 @@ function getUserAvatarHtml() {
     : `<div class="msg-avatar">${safe((userP.name || 'คุณ')[0].toUpperCase())}</div>`;
 }
 
+function renderMessageActionsHtml(role, index, isLastAssistant = false) {
+  const editLabel = safe(t('btn_edit', '✎ แก้ไข'));
+  const editBtn = `<button type="button" class="text-link msg-action-btn" onclick="openEditMessageModal(${index})">${editLabel}</button>`;
+  if (role === 'user') return editBtn;
+  const retryBtn = `<button type="button" class="text-link msg-action-btn" onclick="regenerateReply(${index})">${safe(t('btn_retry', '↺ ลองใหม่'))}</button>`;
+  const contBtn = isLastAssistant
+    ? `<button type="button" class="text-link msg-action-btn continue-inline-btn" onclick="continueStory()">▶ ${safe(t('chat_btn_continue', 'ดำเนินต่อ'))}</button>`
+    : '';
+  return `${editBtn} · ${retryBtn}${contBtn ? ' · ' + contBtn : ''}`;
+}
+
+function setComposerBusy(busy) {
+  window.isGeneratingReply = !!busy;
+  const input = document.getElementById('messageInput');
+  const send = document.querySelector?.('.send');
+  const contBtn = document.getElementById('continueStoryBtn');
+  if (input) input.disabled = !!busy;
+  if (send) send.disabled = !!busy;
+  if (contBtn) contBtn.disabled = !!busy;
+}
+
+function appendTypingBubble(msgs, cAvHtml) {
+  const wait = document.createElement('div');
+  wait.className = 'message typing-message';
+  wait.innerHTML = `${cAvHtml}<div><div class="bubble typing-bubble"><span class="typing-label">${safe(t('chat_typing_label', 'กำลังเขียนเรื่องต่อ'))}</span><span class="typing-dots"><span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span></span></div></div>`;
+  msgs.appendChild(wait);
+  return wait;
+}
+
+function removePriorContinueButtons(msgs) {
+  if (!msgs || typeof msgs.querySelectorAll !== 'function') return;
+  msgs.querySelectorAll('.continue-inline-btn').forEach(b => b.remove());
+}
+
 function renderChatMessages() {
   const msgs = document.getElementById('messages');
   const rawC = window.activeRoleplayCharacter || (typeof characters !== 'undefined' ? (characters.find(x => x.name === currentCharacter) || characters[0]) : null);
@@ -275,12 +574,18 @@ function renderChatMessages() {
     ? safe(t('chat_history_divider', 'ประวัติบทสนทนาที่บันทึกไว้'))
     : safe(t('chat_start_divider', 'เริ่มต้นบทสนทนาใหม่'));
 
-  let html = `<div class="day-divider">${divider}</div><div class="message">${cAv}<div><div class="bubble">${renderRoleplayText(c.greeting)}</div><div class="msg-time">${safe(t('time_start', 'เริ่มต้น'))}</div></div></div>`;
-  for (const m of history) {
+  let lastAssistantIdx = -1;
+  for (let i = history.length - 1; i >= 0; i--) {
+    if (history[i] && history[i].role === 'assistant') { lastAssistantIdx = i; break; }
+  }
+
+  let html = `<div class="day-divider">${divider}</div><div class="message">${cAv}<div><div class="bubble">${renderRoleplayText(c.greeting)}</div><div class="msg-time">${safe(t('time_start', 'เริ่มต้น'))}${!history.length ? ` · <button type="button" class="text-link msg-action-btn continue-inline-btn" onclick="continueStory()">▶ ${safe(t('chat_btn_continue', 'ดำเนินต่อ'))}</button>` : ''}</div></div></div>`;
+  for (let i = 0; i < history.length; i++) {
+    const m = history[i];
     if (m.role === 'user') {
-      html += `<div class="message user">${uAv}<div><div class="bubble">${renderRoleplayText(m.content)}</div><div class="msg-time">${safe(t('time_now', 'ตอนนี้'))} · <button class="text-link" style="font-size:10px;cursor:pointer" onclick="editLastUserMessage()">${safe(t('btn_edit', '✎ แก้ไข'))}</button></div></div></div>`;
+      html += `<div class="message user">${uAv}<div><div class="bubble">${renderRoleplayText(m.content)}</div><div class="msg-time">${safe(t('time_now', 'ตอนนี้'))} · ${renderMessageActionsHtml('user', i, false)}</div></div></div>`;
     } else {
-      html += `<div class="message">${cAv}<div><div class="bubble">${renderRoleplayText(m.content)}</div><div class="msg-time">${safe(t('time_now', 'ตอนนี้'))} · <button class="text-link" style="font-size:10px;cursor:pointer" onclick="regenerateReply()">${safe(t('btn_retry', '↺ ลองใหม่'))}</button></div></div></div>`;
+      html += `<div class="message">${cAv}<div><div class="bubble">${renderRoleplayText(m.content)}</div><div class="msg-time">${safe(t('time_now', 'ตอนนี้'))} · ${renderMessageActionsHtml('assistant', i, i === lastAssistantIdx)}</div></div></div>`;
     }
   }
   msgs.innerHTML = html;
@@ -381,6 +686,7 @@ function appendErrorBubble(msgs, message) {
 }
 
 async function sendMessage() {
+  if (window.isGeneratingReply) return;
   const input = document.getElementById('messageInput');
   const text = input ? input.value.trim() : '';
   if (!text) return;
@@ -390,6 +696,7 @@ async function sendMessage() {
   const history = window.activeChatHistory || (window.activeChatHistory = []);
   const userMessage={role:'user',content:text};
   history.push(userMessage);
+  const userIdx = history.length - 1;
 
   // Remove any stale trailing error bubble before sending new user turn
   const staleErr = msgs?.querySelector('.message.error-message:last-child');
@@ -398,31 +705,26 @@ async function sendMessage() {
   const uAvHtml = getUserAvatarHtml();
   const el = document.createElement('div');
   el.className = 'message user';
-  el.innerHTML = `${uAvHtml}<div><div class="bubble"></div><div class="msg-time">${safe(t('time_now', 'ตอนนี้'))} · <button class="text-link" style="font-size:10px;cursor:pointer" onclick="editLastUserMessage()">${safe(t('btn_edit', '✎ แก้ไข'))}</button></div></div>`;
+  el.innerHTML = `${uAvHtml}<div><div class="bubble"></div><div class="msg-time">${safe(t('time_now', 'ตอนนี้'))} · ${renderMessageActionsHtml('user', userIdx, false)}</div></div>`;
   el.querySelector('.bubble').innerHTML = renderRoleplayText(text);
   msgs.appendChild(el);
   input.value = '';
   if (input.style) input.style.height = '';
-  input.disabled = true;
-  const send = document.querySelector('.send');
-  if (send) send.disabled = true;
+  setComposerBusy(true);
   msgs.scrollTop = msgs.scrollHeight;
 
   const c = window.activeRoleplayCharacter || {};
   const cAvHtml = getCharacterAvatarHtml(c);
-  const wait = document.createElement('div');
-  wait.className = 'message typing-message';
-  wait.innerHTML = `${cAvHtml}<div><div class="bubble typing-bubble"><span class="typing-label">${safe(t('chat_typing_label', 'กำลังเขียนเรื่องต่อ'))}</span><span class="typing-dots"><span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span></span></div></div>`;
-  msgs.appendChild(wait);
+  const wait = appendTypingBubble(msgs, cAvHtml);
 
-  window.isGeneratingReply = true;
   try {
     const payload=buildChatMessages(window.activeRoleplayCharacter,history.slice(-24));
     const answer=await apiChat(payload);
     const lastUserMsg = [...history].reverse().find(m => m && m.role === 'user');
     const cleanAnswer = autoRecordTurnMemory(currentCharacter, lastUserMsg ? lastUserMsg.content : '', answer);
     history.push({ role: 'assistant', content: cleanAnswer });
-    const row = createAssistantReplyElement(cAvHtml, cleanAnswer);
+    removePriorContinueButtons(msgs);
+    const row = createAssistantReplyElement(cAvHtml, cleanAnswer, history.length - 1);
     wait.replaceWith(row);
     playSfx('receive');
   } catch (e) {
@@ -430,9 +732,7 @@ async function sendMessage() {
     playSfx('error');
     appendErrorBubble(msgs, e.message);
   } finally {
-    window.isGeneratingReply = false;
-    if (input) input.disabled = false;
-    if (send) send.disabled = false;
+    setComposerBusy(false);
     if (input && !(typeof window !== 'undefined' && typeof window.innerWidth === 'number' && window.innerWidth <= 700)) input.focus?.();
     if (msgs) msgs.scrollTop = msgs.scrollHeight;
     saveCharacterChatStore(currentCharacter, history);
@@ -440,36 +740,40 @@ async function sendMessage() {
   }
 }
 
-async function regenerateReply() {
+async function regenerateReply(targetIndex) {
+  if (window.isGeneratingReply) return;
   const history = window.activeChatHistory || [];
   if (!history.length) {
     showToast(t('retry_no_messages', 'ยังไม่มีข้อความให้ลองใหม่'));
     return;
   }
   const msgs = document.getElementById('messages');
-  const lastRow = msgs?.querySelector('.message:last-child');
-  if (lastRow && lastRow.classList.contains('error-message')) {
-    lastRow.remove();
-  } else if (history[history.length - 1].role === 'assistant') {
-    history.pop();
-    if (lastRow && !lastRow.classList.contains('user')) lastRow.remove();
+  if (typeof targetIndex === 'number' && targetIndex >= 0 && targetIndex < history.length && history[targetIndex].role === 'assistant') {
+    history.splice(targetIndex);
+    renderChatMessages();
+  } else {
+    const lastRow = msgs?.querySelector('.message:last-child');
+    if (lastRow && lastRow.classList.contains('error-message')) {
+      lastRow.remove();
+    } else if (history[history.length - 1].role === 'assistant') {
+      history.pop();
+      if (lastRow && !lastRow.classList.contains('user')) lastRow.remove();
+    }
   }
 
   const c = window.activeRoleplayCharacter || {};
   const cAvHtml = getCharacterAvatarHtml(c);
-  const wait = document.createElement('div');
-  wait.className = 'message typing-message';
-  wait.innerHTML = `${cAvHtml}<div><div class="bubble typing-bubble"><span class="typing-label">${safe(t('chat_typing_label', 'กำลังเขียนเรื่องต่อ'))}</span><span class="typing-dots"><span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span></span></div></div>`;
-  msgs.appendChild(wait);
+  const wait = appendTypingBubble(msgs, cAvHtml);
+  setComposerBusy(true);
 
-  window.isGeneratingReply = true;
   try {
     const payload=buildChatMessages(window.activeRoleplayCharacter,history.slice(-24));
     const answer=await apiChat(payload);
     const lastUserMsg = [...history].reverse().find(m => m && m.role === 'user');
     const cleanAnswer = autoRecordTurnMemory(currentCharacter, lastUserMsg ? lastUserMsg.content : '', answer);
     history.push({ role: 'assistant', content: cleanAnswer });
-    wait.replaceWith(createAssistantReplyElement(cAvHtml, cleanAnswer));
+    removePriorContinueButtons(msgs);
+    wait.replaceWith(createAssistantReplyElement(cAvHtml, cleanAnswer, history.length - 1));
     playSfx('receive');
   } catch (e) {
     wait.remove();
@@ -477,35 +781,125 @@ async function regenerateReply() {
     appendErrorBubble(msgs, e.message);
     showToast(e.message || t('ai_chat_failed', 'คุยกับ AI ไม่สำเร็จ'));
   } finally {
-    window.isGeneratingReply = false;
-    msgs.scrollTop = msgs.scrollHeight;
+    setComposerBusy(false);
+    if (msgs) msgs.scrollTop = msgs.scrollHeight;
     saveCharacterChatStore(currentCharacter, history);
+    syncMobileChatViewport();
   }
 }
 
-function editLastUserMessage() {
-  const history = window.activeChatHistory || [];
-  if (!history.length) return;
+async function continueStory() {
+  if (window.isGeneratingReply) return;
   const msgs = document.getElementById('messages');
-  while (msgs?.querySelector('.message:last-child.error-message')) {
-    msgs.querySelector('.message:last-child.error-message').remove();
-  }
-  if (history[history.length - 1].role === 'assistant') {
-    history.pop();
-    const lastRow = msgs?.querySelector('.message:last-child');
-    if (lastRow && !lastRow.classList.contains('user')) lastRow.remove();
-  }
-  if (history.length && history[history.length - 1].role === 'user') {
-    const lastUser = history.pop();
-    const lastRow = msgs?.querySelector('.message:last-child');
-    if (lastRow && lastRow.classList.contains('user')) lastRow.remove();
-    const input = document.getElementById('messageInput');
-    if (input) {
-      input.value = lastUser.content;
-      input.focus();
-    }
+  const history = window.activeChatHistory || (window.activeChatHistory = []);
+  const staleErr = msgs?.querySelector('.message.error-message:last-child');
+  if (staleErr) staleErr.remove();
+
+  playSfx('send');
+  const c = window.activeRoleplayCharacter || {};
+  const cAvHtml = getCharacterAvatarHtml(c);
+  const wait = appendTypingBubble(msgs, cAvHtml);
+  if (msgs) msgs.scrollTop = msgs.scrollHeight;
+  setComposerBusy(true);
+
+  try {
+    const basePayload = buildChatMessages(window.activeRoleplayCharacter, history.slice(-24));
+    const payload = [
+      ...basePayload,
+      {
+        role: 'user',
+        content: t(
+          'chat_continue_prompt',
+          '[คำสั่งระบบ: ดำเนินเนื้อเรื่องและบทพูดของตัวละครต่อจากฉากล่าสุดอย่างเป็นธรรมชาติ โดยไม่ต้องทวนซ้ำข้อความเดิม และห้ามบรรยายหรือพูดแทนผู้เล่น]'
+        )
+      }
+    ];
+    const answer = await apiChat(payload);
+    const cleanAnswer = autoRecordTurnMemory(currentCharacter, '', answer);
+    history.push({ role: 'assistant', content: cleanAnswer });
+    removePriorContinueButtons(msgs);
+    wait.replaceWith(createAssistantReplyElement(cAvHtml, cleanAnswer, history.length - 1));
+    playSfx('receive');
+  } catch (e) {
+    wait.remove();
+    playSfx('error');
+    appendErrorBubble(msgs, e.message);
+    showToast(e.message || t('ai_chat_failed', 'คุยกับ AI ไม่สำเร็จ'));
+  } finally {
+    setComposerBusy(false);
+    if (msgs) msgs.scrollTop = msgs.scrollHeight;
     saveCharacterChatStore(currentCharacter, history);
+    syncMobileChatViewport();
   }
+}
+
+let editingMessageIndex = -1;
+
+function openEditMessageModal(index) {
+  const history = window.activeChatHistory || [];
+  let idx = typeof index === 'number' ? index : -1;
+  if (idx < 0) {
+    for (let i = history.length - 1; i >= 0; i--) {
+      if (history[i] && history[i].role === 'user') { idx = i; break; }
+    }
+  }
+  if (idx < 0 || idx >= history.length || !history[idx]) return;
+  editingMessageIndex = idx;
+  const modal = document.getElementById('editMessageModal');
+  const area = document.getElementById('editMessageTextarea');
+  const regenBtn = document.getElementById('editMsgSaveRegenBtn');
+  if (area) {
+    area.value = history[idx].content || '';
+    area.focus?.();
+  }
+  if (regenBtn) regenBtn.hidden = history[idx].role !== 'user';
+  if (modal && modal.classList) modal.classList.add('show');
+  playSfx('modalOpen');
+}
+
+function closeEditMessageModal() {
+  const modal = document.getElementById('editMessageModal');
+  if (modal && modal.classList) {
+    if (modal.classList.contains('show')) playSfx('modalClose');
+    modal.classList.remove('show');
+  }
+  editingMessageIndex = -1;
+}
+
+async function saveEditedMessage(andRegenerate = false) {
+  const history = window.activeChatHistory || [];
+  const idx = editingMessageIndex;
+  if (idx < 0 || idx >= history.length || !history[idx]) {
+    closeEditMessageModal();
+    return false;
+  }
+  const area = document.getElementById('editMessageTextarea');
+  const newText = String(area ? area.value : '').trim();
+  if (!newText) {
+    playSfx('error');
+    showToast(t('toast_msg_empty', 'ข้อความต้องไม่ว่างเปล่า'));
+    return false;
+  }
+  const role = history[idx].role;
+  history[idx] = { role, content: newText };
+  const shouldRegen = Boolean(andRegenerate && role === 'user');
+  if (shouldRegen) {
+    history.splice(idx + 1);
+  }
+  closeEditMessageModal();
+  renderChatMessages();
+  saveCharacterChatStore(currentCharacter, history);
+  if (shouldRegen) {
+    await regenerateReply();
+  } else {
+    playSfx('tap');
+    showToast(t('toast_msg_edited', 'บันทึกการแก้ไขข้อความแล้ว'));
+  }
+  return true;
+}
+
+function editLastUserMessage(index) {
+  openEditMessageModal(index);
 }
 
 function openChatMenu() {
@@ -674,10 +1068,11 @@ function saveCharacterChatStore(charName, history) {
   if (typeof renderChatList === 'function') renderChatList();
 }
 
-function createAssistantReplyElement(avatarHtml, text) {
+function createAssistantReplyElement(avatarHtml, text, msgIndex) {
   const row = document.createElement('div');
   row.className = 'message';
-  row.innerHTML = `${avatarHtml}<div><div class="bubble"></div><div class="msg-time">${safe(t('time_now', 'ตอนนี้'))} · <button class="text-link" style="font-size:10px;cursor:pointer" onclick="regenerateReply()">${safe(t('btn_retry', '↺ ลองใหม่'))}</button></div></div>`;
+  const idx = typeof msgIndex === 'number' ? msgIndex : Math.max(0, (window.activeChatHistory || []).length - 1);
+  row.innerHTML = `${avatarHtml}<div><div class="bubble"></div><div class="msg-time">${safe(t('time_now', 'ตอนนี้'))} · ${renderMessageActionsHtml('assistant', idx, true)}</div></div>`;
   row.querySelector('.bubble').innerHTML = renderRoleplayText(text);
   return row;
 }

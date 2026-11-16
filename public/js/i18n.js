@@ -163,6 +163,7 @@ function applyLocale(code, quiet=false){
   if(typeof renderChatMessages === 'function' && typeof currentCharacter !== 'undefined' && currentCharacter && !window.isGeneratingReply) renderChatMessages();
   if(typeof refreshCharInfoModal === 'function') refreshCharInfoModal();
   if(typeof renderCharacterMemoryUi === 'function') renderCharacterMemoryUi();
+  if(typeof syncAmbientUi === 'function') syncAmbientUi();
 }
 
 function switchLocale(code){

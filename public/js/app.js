@@ -46,6 +46,7 @@ document.addEventListener('keydown', event => {
   if (event.key === 'Escape') {
     closeMobileMenu();
     if (typeof closeMemoryModal === 'function') closeMemoryModal();
+    if (typeof closeEditMessageModal === 'function') closeEditMessageModal();
   }
 });
 
@@ -132,6 +133,7 @@ closeOnBg('userProfileModal', closeUserProfileModal);
 closeOnBg('languageModal', closeLanguageModal);
 closeOnBg('customLanguageModal', closeCustomLanguageModal);
 closeOnBg('memoryModal', closeMemoryModal);
+closeOnBg('editMessageModal', closeEditMessageModal);
 
 document.addEventListener('DOMContentLoaded', () => {
   initSoundButton();
@@ -144,5 +146,6 @@ loadFavorites();
 loadUserProfiles();
 loadChatStoresFromStorage();
 if (typeof renderCharacterMemoryUi === 'function') renderCharacterMemoryUi();
+if (typeof syncAmbientUi === 'function') syncAmbientUi();
 syncChatStoresWithServer();
 renderCards();

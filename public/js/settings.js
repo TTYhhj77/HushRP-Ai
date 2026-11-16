@@ -501,7 +501,13 @@ function renderThemeSelector() {
   const topBtn = document.getElementById('themeToggleBtn');
   const curTheme = THEMES.find(x => x.id === activeTheme) || THEMES[0];
   if (topBtn && curTheme) {
-    topBtn.textContent = curTheme.icon;
+    if (topBtn.dataset) topBtn.dataset.theme = curTheme.id;
+    const baseLabel = typeof t === 'function' ? t('btn_theme', 'เปลี่ยนธีมสี / Theme') : 'Theme';
+    const themeName = typeof t === 'function' ? t('theme_' + curTheme.id, curTheme.id) : curTheme.id;
+    topBtn.title = `${baseLabel}: ${themeName}`;
+    if (!topBtn.querySelector || !topBtn.querySelector('svg')) {
+      topBtn.textContent = curTheme.icon;
+    }
   }
 }
 

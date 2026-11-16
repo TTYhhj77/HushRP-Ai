@@ -3,7 +3,7 @@
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D20-brightgreen.svg)](https://nodejs.org)
 [![Zero Dependencies](https://img.shields.io/badge/dependencies-0-blue.svg)](package.json)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-284%20passing-success.svg)](test/)
+[![Tests](https://img.shields.io/badge/tests-285%20passing-success.svg)](test/)
 
 HushRP คือเว็บแอปพลิเคชัน AI roleplay แบบ self-hostable ที่สร้างขึ้นบน Node.js ล้วน โดยไม่มี runtime npm dependency เลย ออกแบบมาเพื่อความเป็นส่วนตัวและความพอร์ตเทเบิลสูงสุด: ไม่มี database daemon ไม่มี build step และไม่มี bundler ส่วน frontend ถูกแยกเป็นโมดูลในโฟลเดอร์ `public/` และเสิร์ฟโดยตรงจาก Node.js server สถานะที่ต้องบันทึกทั้งหมดจัดเก็บเป็นไฟล์ JSON แบบ atomic บนไฟล์ซิสเต็มของโฮสต์
 
@@ -274,7 +274,7 @@ API key ถูกป้อนในเบราว์เซอร์และเ
 node --test
 ```
 
-สถานะปัจจุบัน: **284 ผ่าน, 0 ล้มเหลว** (และข้าม 2 รายการบน Windows ที่ไม่มี `bash` / Docker Compose)
+สถานะปัจจุบัน: **285 ผ่าน, 0 ล้มเหลว** (และข้าม 2 รายการบน Windows ที่ไม่มี `bash` / Docker Compose)
 
 | ไฟล์ทดสอบ | ขอบเขตที่ครอบคลุม |
 |---|---|
