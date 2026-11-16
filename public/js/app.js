@@ -47,6 +47,9 @@ document.addEventListener('keydown', event => {
     closeMobileMenu();
     if (typeof closeMemoryModal === 'function') closeMemoryModal();
     if (typeof closeEditMessageModal === 'function') closeEditMessageModal();
+    if (typeof closeModelPickerModal === 'function') closeModelPickerModal();
+    if (typeof closeShareCharacterModal === 'function') closeShareCharacterModal();
+    if (typeof closeImportCharacterModal === 'function') closeImportCharacterModal();
   }
 });
 
@@ -134,6 +137,9 @@ closeOnBg('languageModal', closeLanguageModal);
 closeOnBg('customLanguageModal', closeCustomLanguageModal);
 closeOnBg('memoryModal', closeMemoryModal);
 closeOnBg('editMessageModal', closeEditMessageModal);
+closeOnBg('modelPickerModal', closeModelPickerModal);
+closeOnBg('shareCharacterModal', closeShareCharacterModal);
+closeOnBg('importCharacterModal', closeImportCharacterModal);
 
 document.addEventListener('DOMContentLoaded', () => {
   initSoundButton();

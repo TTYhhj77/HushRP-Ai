@@ -42,6 +42,15 @@ function renderModelChoices() {
   const current = String(document.getElementById('modelSelect')?.value || '').trim();
   if (current && list.indexOf(current) < 0) list.unshift(current);
 
+  const pickerLabel = document.getElementById('chatModelPickerLabel');
+  if (pickerLabel) {
+    pickerLabel.textContent = current || (typeof t === 'function' ? t('model_picker_btn_empty', 'เลือกโมเดล AI') : 'เลือกโมเดล AI');
+  }
+  const pickerBtn = document.getElementById('chatModelPickerBtn');
+  if (pickerBtn && pickerBtn.classList) {
+    pickerBtn.classList.toggle('has-model', Boolean(current));
+  }
+
   const dl = document.getElementById('modelOptions');
   if (dl && dl.appendChild) {
     while (dl.firstChild) dl.removeChild(dl.firstChild);
@@ -60,15 +69,119 @@ function renderModelChoices() {
       o.value = '';
       o.textContent = t('msg_no_models', 'ดึงโมเดลในตั้งค่าก่อน');
       sel.appendChild(o);
-      return;
+    } else {
+      for (const m of list) {
+        const o = document.createElement('option');
+        o.value = m;
+        o.textContent = m;
+        o.selected = m === current;
+        sel.appendChild(o);
+      }
     }
-    for (const m of list) {
-      const o = document.createElement('option');
-      o.value = m;
-      o.textContent = m;
-      o.selected = m === current;
-      sel.appendChild(o);
-    }
+  }
+
+  const modal = document.getElementById('modelPickerModal');
+  if (modal && modal.classList && modal.classList.contains('show')) {
+    renderModelPickerList(document.getElementById('modelSearchInput')?.value || '');
+  }
+}
+
+function extractModelVendorTag(modelId) {
+  const m = String(modelId || '').trim();
+  if (!m) return '';
+  if (m.startsWith('hf.co/')) return 'HF';
+  if (m.includes('/')) return m.split('/')[0].slice(0, 12);
+  if (m.includes(':')) return m.split(':')[1].slice(0, 10);
+  if (/^gpt-/i.test(m)) return 'OpenAI';
+  return '';
+}
+
+function renderModelPickerList(query = '') {
+  const provider = document.getElementById('providerSelect')?.value || 'OpenAI';
+  const current = String(document.getElementById('modelSelect')?.value || '').trim();
+  const list = (getModelCache()[provider] || []).slice();
+  if (current && list.indexOf(current) < 0) list.unshift(current);
+
+  const q = String(query || '').trim().toLowerCase();
+  const filtered = q ? list.filter(m => m.toLowerCase().includes(q)) : list;
+
+  const provBadge = document.getElementById('modelPickerProviderBadge');
+  if (provBadge) provBadge.textContent = provider;
+  const countBadge = document.getElementById('modelPickerCountBadge');
+  if (countBadge) {
+    countBadge.textContent = (typeof t === 'function' ? t('model_picker_count', '{n} โมเดล') : '{n} models').replace('{n}', String(filtered.length));
+  }
+
+  const container = document.getElementById('modelPickerList');
+  if (!container) return;
+  if (!list.length) {
+    container.innerHTML = `<div class="empty-note">${safe(t('model_picker_empty', 'ยังไม่มีรายการโมเดล กด “ดึงรายการล่าสุด” หรือพิมพ์ชื่อโมเดลด้านบน'))}</div>`;
+    return;
+  }
+  if (!filtered.length) {
+    container.innerHTML = `<div class="empty-note">${safe(t('model_picker_no_match', 'ไม่พบโมเดลที่ตรงกับคำค้น — กดปุ่ม “ใช้ชื่อที่พิมพ์” เพื่อใช้ชื่อนี้ได้ทันที'))}</div>`;
+    return;
+  }
+  container.innerHTML = filtered.map(m => {
+    const active = m === current;
+    const vendor = extractModelVendorTag(m);
+    const esc = safe(m);
+    return `<button type="button" class="model-option-card${active ? ' active' : ''}" data-model="${esc}" onclick="selectModelFromPicker(this.dataset.model)"><span class="model-option-main">${vendor ? `<span class="model-vendor-tag">${safe(vendor)}</span>` : ''}<span class="model-option-name">${esc}</span></span>${active ? '<span class="model-option-check">✓</span>' : ''}</button>`;
+  }).join('');
+}
+
+function openModelPickerModal() {
+  const searchEl = document.getElementById('modelSearchInput');
+  if (searchEl) searchEl.value = '';
+  renderModelPickerList('');
+  const modal = document.getElementById('modelPickerModal');
+  if (modal && modal.classList) modal.classList.add('show');
+  if (typeof playSfx === 'function') playSfx('modalOpen');
+  if (searchEl && !(typeof window !== 'undefined' && typeof window.innerWidth === 'number' && window.innerWidth <= 700)) {
+    searchEl.focus?.();
+  }
+}
+
+function closeModelPickerModal() {
+  const modal = document.getElementById('modelPickerModal');
+  if (modal && modal.classList) {
+    if (modal.classList.contains('show') && typeof playSfx === 'function') playSfx('modalClose');
+    modal.classList.remove('show');
+  }
+}
+
+function selectModelFromPicker(modelId) {
+  const clean = String(modelId || '').trim().slice(0, 150);
+  if (!clean) return;
+  const ms = document.getElementById('modelSelect');
+  if (ms) ms.value = clean;
+  const cs = document.getElementById('chatModelSelect');
+  if (cs) cs.value = clean;
+  saveProviderSettings();
+  renderModelChoices();
+  closeModelPickerModal();
+  if (typeof playSfx === 'function') playSfx('tap');
+  showToast(t('toast_model_selected', 'เลือกใช้โมเดล {model} แล้ว').replace('{model}', clean));
+}
+
+function useSearchAsManualModel() {
+  const val = String(document.getElementById('modelSearchInput')?.value || '').trim();
+  if (!val) {
+    if (typeof playSfx === 'function') playSfx('error');
+    showToast(t('model_id_required', 'ใส่ model ID ก่อน'));
+    return;
+  }
+  selectModelFromPicker(val);
+}
+
+async function refreshModelsInPicker() {
+  const btn = document.getElementById('modelPickerRefreshBtn');
+  if (btn) btn.disabled = true;
+  try {
+    await loadModels();
+    renderModelPickerList(document.getElementById('modelSearchInput')?.value || '');
+  } finally {
+    if (btn) btn.disabled = false;
   }
 }
 

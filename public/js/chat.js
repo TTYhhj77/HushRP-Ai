@@ -1173,8 +1173,8 @@ function renderCharacterMemoryUi(charName) {
 
   const headBadge = document.getElementById('chatMemoryBadge');
   if (headBadge) {
-    headBadge.textContent = String(items.length);
-    headBadge.hidden = items.length === 0;
+    headBadge.textContent = '';
+    headBadge.hidden = true;
   }
 
   const headBtn = document.getElementById('chatMemoryBtn');

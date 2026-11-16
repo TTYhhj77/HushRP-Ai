@@ -3,7 +3,7 @@
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D20-brightgreen.svg)](https://nodejs.org)
 [![Zero Dependencies](https://img.shields.io/badge/dependencies-0-blue.svg)](package.json)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-285%20passing-success.svg)](test/)
+[![Tests](https://img.shields.io/badge/tests-286%20passing-success.svg)](test/)
 
 HushRP 是一款可自托管的 AI 角色扮演 Web 应用，完全基于纯 Node.js 构建，运行时零 npm 依赖。它面向最高级别的隐私与可移植性设计：无数据库守护进程、无构建步骤、无打包器。前端采用模块化静态资源目录（`public/`），由 Node.js 内置服务器直接提供服务。所有持久化状态均以原子性 JSON 文件形式存储在主机文件系统上。
 
@@ -364,7 +364,7 @@ hushrp.example.com {
 node --test
 ```
 
-当前状态：**285 通过，0 失败**（Windows 下若未安装 `bash` / Docker Compose，则对应 2 项环境检查自动跳过）。
+当前状态：**286 通过，0 失败**（Windows 下若未安装 `bash` / Docker Compose，则对应 2 项环境检查自动跳过）。
 
 | 测试文件 | 覆盖范围 |
 |----------|----------|

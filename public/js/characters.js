@@ -143,6 +143,14 @@ function waitCharactersReady() {
   return charactersLoaded ? Promise.resolve() : loadSavedCharacters();
 }
 
+const SHARE_CHAR_PREFIX = 'HUSHCHAR-V1:';
+const SHARE_ICON_SVG = '<svg class="ui-icon" style="width:14px;height:14px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>';
+let activeShareCharacter = null;
+
+function buildCardShareButtonHtml(charName) {
+  return `<button type="button" class="card-share-top-btn" title="${safe(t('share_char_btn', 'แชร์ตัวละคร'))}" aria-label="${safe(t('share_char_btn', 'แชร์ตัวละคร'))}" data-name="${charName}" onclick="event.stopPropagation();openShareCharacterModal(this.dataset.name)">${SHARE_ICON_SVG}</button>`;
+}
+
 function renderFavoriteCards(){
   const root = document.getElementById('favoriteCards');
   const empty = document.getElementById('favoriteCardsEmpty');
@@ -159,7 +167,8 @@ function renderFavoriteCards(){
     const artStyle = c.avatarUrl ? `background-image:url('${safe(c.avatarUrl)}');background-size:cover;background-position:center` : '';
     const artClass = `card-art ${c.art || ''}${c.avatarUrl ? ' has-cover' : ''}`;
     const creatorName = c.creator === 'คุณ' ? safe(t('persona_default_name', 'คุณ')) : safe(c.creator);
-    return `<article class="character-card" data-name="${safe(c.name)}" onclick="startCharacter(this.dataset.name)"><div class="${artClass}" style="${artStyle}"><span class="art-tag">${c.adult ? safe(t('tag_adult', 'ผู้ใหญ่ 18+')) : safe(t('tag_fictional', 'บทบาทสมมติ'))}</span></div><div class="card-body"><div class="card-title-row"><div class="card-title">${safe(c.name)}</div><button class="heart liked" aria-label="${safe(t('fav_aria_remove', 'นำออกจากรายการโปรด'))}" data-name="${safe(c.name)}" onclick="event.stopPropagation();toggleFavorite(this.dataset.name)">♥</button></div><div class="card-desc">${safe(lc.role)} — ${safe(lc.desc)}</div><div class="tag-row">${(c.genre || []).slice(0, 2).map(g => `<span class="tag">${safe(formatGenreLabel(g))}</span>`).join('')}</div><div class="card-footer"><span class="creator"><i class="creator-dot">✦</i>${creatorName}</span><span>${safe(t('card_start_story', 'เริ่มเรื่อง ↗'))}</span></div></div></article>`;
+    const charName = safe(c.name);
+    return `<article class="character-card" data-name="${charName}" onclick="startCharacter(this.dataset.name)"><div class="${artClass}" style="${artStyle}"><span class="art-tag">${c.adult ? safe(t('tag_adult', 'ผู้ใหญ่ 18+')) : safe(t('tag_fictional', 'บทบาทสมมติ'))}</span>${buildCardShareButtonHtml(charName)}</div><div class="card-body"><div class="card-title-row"><div class="card-title">${charName}</div><button class="heart liked" aria-label="${safe(t('fav_aria_remove', 'นำออกจากรายการโปรด'))}" data-name="${charName}" onclick="event.stopPropagation();toggleFavorite(this.dataset.name)">♥</button></div><div class="card-desc">${safe(lc.role)} — ${safe(lc.desc)}</div><div class="tag-row">${(c.genre || []).slice(0, 2).map(g => `<span class="tag">${safe(formatGenreLabel(g))}</span>`).join('')}</div><div class="card-footer"><span class="creator"><i class="creator-dot">✦</i>${creatorName}</span><span>${safe(t('card_start_story', 'เริ่มเรื่อง ↗'))}</span></div></div></article>`;
   }).join('');
 }
 
@@ -184,7 +193,8 @@ function renderCards(){
     const artStyle = c.avatarUrl ? `background-image:url('${safe(c.avatarUrl)}');background-size:cover;background-position:center` : '';
     const artClass = `card-art ${c.art || ''}${c.avatarUrl ? ' has-cover' : ''}`;
     const creatorName = c.creator === 'คุณ' ? safe(t('persona_default_name', 'คุณ')) : safe(c.creator);
-    return `<article class="character-card" data-name="${safe(c.name)}" onclick="startCharacter(this.dataset.name)"><div class="${artClass}" style="${artStyle}"><span class="art-tag">${c.adult ? safe(t('tag_adult', 'ผู้ใหญ่ 18+')) : safe(t('tag_fictional', 'บทบาทสมมติ'))}</span></div><div class="card-body"><div class="card-title-row"><div class="card-title">${safe(c.name)}</div><button class="heart ${isFav ? 'liked' : ''}" aria-label="${isFav ? safe(t('fav_aria_remove', 'นำออกจากรายการโปรด')) : safe(t('fav_aria_add', 'เพิ่มในรายการโปรด'))}" data-name="${safe(c.name)}" onclick="event.stopPropagation();toggleFavorite(this.dataset.name)">${isFav ? '♥' : '♡'}</button></div><div class="card-desc">${safe(lc.role)} — ${safe(lc.desc)}</div><div class="tag-row">${(c.genre || []).slice(0, 2).map(g => `<span class="tag">${safe(formatGenreLabel(g))}</span>`).join('')}</div><div class="card-footer"><span class="creator"><i class="creator-dot">✦</i>${creatorName}</span><span>${safe(t('card_start_story', 'เริ่มเรื่อง ↗'))}</span></div></div></article>`;
+    const charName = safe(c.name);
+    return `<article class="character-card" data-name="${charName}" onclick="startCharacter(this.dataset.name)"><div class="${artClass}" style="${artStyle}"><span class="art-tag">${c.adult ? safe(t('tag_adult', 'ผู้ใหญ่ 18+')) : safe(t('tag_fictional', 'บทบาทสมมติ'))}</span>${buildCardShareButtonHtml(charName)}</div><div class="card-body"><div class="card-title-row"><div class="card-title">${charName}</div><button class="heart ${isFav ? 'liked' : ''}" aria-label="${isFav ? safe(t('fav_aria_remove', 'นำออกจากรายการโปรด')) : safe(t('fav_aria_add', 'เพิ่มในรายการโปรด'))}" data-name="${charName}" onclick="event.stopPropagation();toggleFavorite(this.dataset.name)">${isFav ? '♥' : '♡'}</button></div><div class="card-desc">${safe(lc.role)} — ${safe(lc.desc)}</div><div class="tag-row">${(c.genre || []).slice(0, 2).map(g => `<span class="tag">${safe(formatGenreLabel(g))}</span>`).join('')}</div><div class="card-footer"><span class="creator"><i class="creator-dot">✦</i>${creatorName}</span><span>${safe(t('card_start_story', 'เริ่มเรื่อง ↗'))}</span></div></div></article>`;
   }).join('');
 }
 
@@ -201,7 +211,7 @@ function renderMyCards(){
     const creatorName = safe(t('persona_default_name', 'คุณ'));
     const charId = safe(c.id || c.name);
     const charName = safe(c.name);
-    return `<article class="character-card" style="position:relative" data-name="${charName}" onclick="startCharacter(this.dataset.name)"><div class="${artClass}" style="${artStyle}"><span class="art-tag">${c.adult ? safe(t('tag_adult', 'ผู้ใหญ่ 18+')) : safe(t('tag_fictional', 'บทบาทสมมติ'))}</span><div class="card-action-group"><button class="icon-button card-action-btn" title="${safe(t('edit_char_title', 'แก้ไขตัวละคร'))}" data-id="${charId}" data-name="${charName}" onclick="event.stopPropagation();editCharacter(this.dataset.id,this.dataset.name)">✎</button><button class="icon-button card-action-btn del" title="${safe(t('del_char_title', 'ลบตัวละคร'))}" data-id="${charId}" data-name="${charName}" onclick="event.stopPropagation();deleteCharacter(this.dataset.id,this.dataset.name)">✕</button></div></div><div class="card-body"><div class="card-title-row"><div class="card-title">${charName}</div><button class="heart ${isFav ? 'liked' : ''}" aria-label="${isFav ? safe(t('fav_aria_remove', 'นำออกจากรายการโปรด')) : safe(t('fav_aria_add', 'เพิ่มในรายการโปรด'))}" data-name="${charName}" onclick="event.stopPropagation();toggleFavorite(this.dataset.name)">${isFav ? '♥' : '♡'}</button></div><div class="card-desc">${safe(lc.role)} — ${safe(lc.desc)}</div><div class="card-footer"><span class="creator"><i class="creator-dot">✦</i>${creatorName}</span><span>${safe(t('card_start_story', 'เริ่มเรื่อง ↗'))}</span></div></div></article>`;
+    return `<article class="character-card" style="position:relative" data-name="${charName}" onclick="startCharacter(this.dataset.name)"><div class="${artClass}" style="${artStyle}"><span class="art-tag">${c.adult ? safe(t('tag_adult', 'ผู้ใหญ่ 18+')) : safe(t('tag_fictional', 'บทบาทสมมติ'))}</span><div class="card-action-group"><button type="button" class="icon-button card-action-btn" title="${safe(t('share_char_btn', 'แชร์ตัวละคร'))}" data-id="${charId}" data-name="${charName}" onclick="event.stopPropagation();openShareCharacterModal(this.dataset.name)">${SHARE_ICON_SVG}</button><button class="icon-button card-action-btn" title="${safe(t('edit_char_title', 'แก้ไขตัวละคร'))}" data-id="${charId}" data-name="${charName}" onclick="event.stopPropagation();editCharacter(this.dataset.id,this.dataset.name)">✎</button><button class="icon-button card-action-btn del" title="${safe(t('del_char_title', 'ลบตัวละคร'))}" data-id="${charId}" data-name="${charName}" onclick="event.stopPropagation();deleteCharacter(this.dataset.id,this.dataset.name)">✕</button></div></div><div class="card-body"><div class="card-title-row"><div class="card-title">${charName}</div><button class="heart ${isFav ? 'liked' : ''}" aria-label="${isFav ? safe(t('fav_aria_remove', 'นำออกจากรายการโปรด')) : safe(t('fav_aria_add', 'เพิ่มในรายการโปรด'))}" data-name="${charName}" onclick="event.stopPropagation();toggleFavorite(this.dataset.name)">${isFav ? '♥' : '♡'}</button></div><div class="card-desc">${safe(lc.role)} — ${safe(lc.desc)}</div><div class="card-footer"><span class="creator"><i class="creator-dot">✦</i>${creatorName}</span><span>${safe(t('card_start_story', 'เริ่มเรื่อง ↗'))}</span></div></div></article>`;
   }).join('');
   if (empty) empty.hidden = mine.length > 0;
 }
@@ -529,3 +539,240 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('charRole')?.addEventListener('input', updatePreview);
   document.getElementById('charGenre')?.addEventListener('change', updatePreview);
 });
+
+// ── Character Sharing & Import ────────────────────────────────────────────────
+const B64_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+
+function utf8ToBase64(str) {
+  const bytes = unescape(encodeURIComponent(String(str || '')));
+  if (typeof btoa === 'function') return btoa(bytes);
+  let out = '';
+  for (let i = 0; i < bytes.length; i += 3) {
+    const a = bytes.charCodeAt(i);
+    const b = i + 1 < bytes.length ? bytes.charCodeAt(i + 1) : 0;
+    const c = i + 2 < bytes.length ? bytes.charCodeAt(i + 2) : 0;
+    const n = (a << 16) | (b << 8) | c;
+    out += B64_CHARS[(n >> 18) & 63] + B64_CHARS[(n >> 12) & 63];
+    out += i + 1 < bytes.length ? B64_CHARS[(n >> 6) & 63] : '=';
+    out += i + 2 < bytes.length ? B64_CHARS[n & 63] : '=';
+  }
+  return out;
+}
+
+function base64ToUtf8(b64) {
+  const clean = String(b64 || '').replace(/\s+/g, '');
+  let bytes = '';
+  if (typeof atob === 'function') {
+    bytes = atob(clean);
+  } else {
+    const pad = clean.endsWith('==') ? 2 : clean.endsWith('=') ? 1 : 0;
+    const stripped = clean.replace(/=+$/, '');
+    const arr = [];
+    for (let i = 0; i < stripped.length; i += 4) {
+      const c1 = B64_CHARS.indexOf(stripped[i]);
+      const c2 = B64_CHARS.indexOf(stripped[i + 1]);
+      const c3 = i + 2 < stripped.length ? B64_CHARS.indexOf(stripped[i + 2]) : 0;
+      const c4 = i + 3 < stripped.length ? B64_CHARS.indexOf(stripped[i + 3]) : 0;
+      if (c1 < 0 || c2 < 0 || c3 < 0 || c4 < 0) throw new Error('Invalid base64');
+      const n = (c1 << 18) | (c2 << 12) | (c3 << 6) | c4;
+      arr.push((n >> 16) & 255);
+      if (i + 2 < stripped.length) arr.push((n >> 8) & 255);
+      if (i + 3 < stripped.length) arr.push(n & 255);
+    }
+    if (pad && arr.length) {}
+    bytes = arr.map(code => String.fromCharCode(code)).join('');
+  }
+  const pct = Array.from(bytes, ch => '%' + ch.charCodeAt(0).toString(16).padStart(2, '0')).join('');
+  return decodeURIComponent(pct);
+}
+
+function buildPortableCharacterObject(c) {
+  if (!c || typeof c !== 'object') return null;
+  const name = String(c.name || '').trim().slice(0, 80);
+  if (!name) return null;
+  return {
+    schema: 'hushrp-character-v1',
+    name,
+    role: String(c.role || '').slice(0, 300),
+    appearance: String(c.appearance || '').slice(0, 1000),
+    desc: String(c.desc || '').slice(0, 1500),
+    genre: Array.isArray(c.genre) ? c.genre.filter(x => typeof x === 'string' && x.trim()).slice(0, 10) : ['แฟนตาซี'],
+    adult: c.adult === true,
+    systemPrompt: String(c.systemPrompt || '').slice(0, 10000),
+    greeting: String(c.greeting || '').slice(0, 3000),
+    art: String(c.art || 'art5')
+  };
+}
+
+function encodeCharacterShareCode(c) {
+  const portable = buildPortableCharacterObject(c);
+  if (!portable) return '';
+  return SHARE_CHAR_PREFIX + utf8ToBase64(JSON.stringify(portable));
+}
+
+function parseSharedCharacterPayload(raw) {
+  const text = String(raw || '').trim();
+  if (!text) return null;
+  try {
+    const jsonText = text.startsWith(SHARE_CHAR_PREFIX)
+      ? base64ToUtf8(text.slice(SHARE_CHAR_PREFIX.length).trim())
+      : text;
+    const obj = JSON.parse(jsonText);
+    return buildPortableCharacterObject(obj);
+  } catch {
+    return null;
+  }
+}
+
+function openShareCharacterModal(idOrName) {
+  const key = idOrName || (window.activeRoleplayCharacter && window.activeRoleplayCharacter.name) || (typeof currentCharacter !== 'undefined' ? currentCharacter : '');
+  const found = (typeof characters !== 'undefined' && Array.isArray(characters)
+    ? characters.find(x => (key && x.id === key) || x.name === key)
+    : null) || (window.activeRoleplayCharacter && window.activeRoleplayCharacter.name === key ? window.activeRoleplayCharacter : null);
+  if (!found) return;
+
+  activeShareCharacter = buildPortableCharacterObject(found);
+  const summaryEl = document.getElementById('shareCharacterSummary');
+  if (summaryEl) {
+    const av = safe(found.avatar || found.name?.[0]?.toUpperCase() || '✦');
+    const avStyle = found.avatarUrl ? `background-image:url('${safe(found.avatarUrl)}');background-size:cover;background-position:center` : '';
+    summaryEl.innerHTML = `<span class="avatar ${safe(found.art || 'art5')}" style="${avStyle}">${found.avatarUrl ? '' : av}</span><div class="share-char-meta"><strong>${safe(found.name)}</strong><small>${safe(found.role || '')}</small></div>`;
+  }
+  const box = document.getElementById('shareCharacterCodeBox');
+  if (box) box.value = encodeCharacterShareCode(activeShareCharacter);
+
+  const modal = document.getElementById('shareCharacterModal');
+  if (modal && modal.classList) modal.classList.add('show');
+  if (typeof playSfx === 'function') playSfx('modalOpen');
+}
+
+function closeShareCharacterModal() {
+  const modal = document.getElementById('shareCharacterModal');
+  if (modal && modal.classList) {
+    if (modal.classList.contains('show') && typeof playSfx === 'function') playSfx('modalClose');
+    modal.classList.remove('show');
+  }
+}
+
+function copyCharacterShareCode() {
+  const box = document.getElementById('shareCharacterCodeBox');
+  const code = String(box ? box.value : (activeShareCharacter ? encodeCharacterShareCode(activeShareCharacter) : '')).trim();
+  if (!code) return;
+  const charName = activeShareCharacter?.name || '';
+  const doneMsg = t('toast_char_code_copied', 'คัดลอกโค้ดแชร์ของ "{name}" แล้ว').replace('{name}', charName);
+  if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(code)
+      .then(() => { if (typeof playSfx === 'function') playSfx('tap'); showToast(doneMsg); })
+      .catch(() => showToast(t('toast_copy_failed', 'คัดลอกไม่สำเร็จ')));
+    return;
+  }
+  if (box && typeof box.select === 'function' && typeof document !== 'undefined' && typeof document.execCommand === 'function') {
+    box.select();
+    try { document.execCommand('copy'); } catch {}
+  }
+  if (typeof playSfx === 'function') playSfx('tap');
+  showToast(doneMsg);
+}
+
+function downloadSharedCharacter() {
+  if (!activeShareCharacter) return;
+  const json = JSON.stringify(activeShareCharacter, null, 2);
+  const safeName = activeShareCharacter.name.replace(/[^\p{L}\p{N}_-]+/gu, '_').replace(/^_+|_+$/g, '') || 'character';
+  if (typeof Blob === 'function' && typeof URL !== 'undefined' && URL.createObjectURL) {
+    const blob = new Blob([json], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${safeName}.hushchar.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+  if (typeof playSfx === 'function') playSfx('success');
+  showToast(t('toast_char_file_downloaded', 'ดาวน์โหลดไฟล์ตัวละคร "{name}" แล้ว').replace('{name}', activeShareCharacter.name));
+}
+
+function openImportCharacterModal() {
+  const fileEl = document.getElementById('importCharacterFileInput');
+  if (fileEl) fileEl.value = '';
+  const textEl = document.getElementById('importCharacterTextInput');
+  if (textEl) {
+    textEl.value = '';
+    textEl.focus?.();
+  }
+  const modal = document.getElementById('importCharacterModal');
+  if (modal && modal.classList) modal.classList.add('show');
+  if (typeof playSfx === 'function') playSfx('modalOpen');
+}
+
+function closeImportCharacterModal() {
+  const modal = document.getElementById('importCharacterModal');
+  if (modal && modal.classList) {
+    if (modal.classList.contains('show') && typeof playSfx === 'function') playSfx('modalClose');
+    modal.classList.remove('show');
+  }
+}
+
+async function handleImportCharacterFile(input) {
+  const file = input?.files && input.files[0];
+  if (!file) return;
+  try {
+    const text = typeof file.text === 'function' ? await file.text() : '';
+    const box = document.getElementById('importCharacterTextInput');
+    if (box) box.value = text;
+  } catch {
+    showToast(t('toast_char_import_invalid', 'ไฟล์หรือโค้ดตัวละครไม่ถูกต้อง'));
+  }
+}
+
+async function confirmImportCharacter() {
+  const box = document.getElementById('importCharacterTextInput');
+  const parsed = parseSharedCharacterPayload(box ? box.value : '');
+  if (!parsed) {
+    if (typeof playSfx === 'function') playSfx('error');
+    showToast(t('toast_char_import_invalid', 'ไฟล์หรือโค้ดตัวละครไม่ถูกต้อง กรุณาตรวจสอบอีกครั้ง'));
+    return false;
+  }
+
+  const btn = document.getElementById('importCharConfirmBtn');
+  if (btn) btn.disabled = true;
+  try {
+    const response = await fetch('/api/characters', {
+      method: 'POST',
+      headers: Object.assign({ 'content-type': 'application/json' }, getSessionHeaders()),
+      body: JSON.stringify(parsed)
+    });
+    const saved = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(saved.error || t('char_save_failed', 'บันทึกตัวละครไม่สำเร็จ'));
+
+    const entry = {
+      ...parsed,
+      ...saved,
+      art: saved.art || parsed.art || 'art5',
+      creator: 'คุณ',
+      avatar: saved.avatar || (saved.name || parsed.name)[0].toUpperCase()
+    };
+    const idx = characters.findIndex(x => (entry.id && x.id === entry.id) || x.name === entry.name);
+    if (idx >= 0) characters[idx] = { ...characters[idx], ...entry };
+    else characters.unshift(entry);
+
+    renderCards();
+    renderMyCards();
+    renderFavoriteCards();
+    closeImportCharacterModal();
+    if (typeof playSfx === 'function') playSfx('success');
+    showToast(t('toast_char_imported', 'นำเข้าตัวละคร "{name}" เรียบร้อยแล้ว').replace('{name}', entry.name));
+    if (typeof showView === 'function') {
+      showView('mine');
+      renderMyCards();
+    }
+    return true;
+  } catch (e) {
+    if (typeof playSfx === 'function') playSfx('error');
+    showToast(e?.message || t('server_connect_failed', 'เชื่อมต่อเซิร์ฟเวอร์ไม่ได้'));
+    return false;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}

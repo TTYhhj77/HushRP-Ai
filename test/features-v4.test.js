@@ -1073,8 +1073,9 @@ test('stealth AI auto-memory extracts tags, avoids duplicate extractive prompt b
   assert.equal(cleanReply, '*ยิ้มอ่อนโยน*');
   const memList = ctx.getCharacterMemoryList('Mira');
   assert.deepEqual(Array.from(memList), ['ชอบโกโก้ร้อน', 'เคยพบกันที่สถานี']);
-  assert.equal(makeEl('chatMemoryBadge').textContent, '2');
-  assert.equal(makeEl('chatMemoryBadge').hidden, false);
+  assert.equal(makeEl('chatMemoryBadge').hidden, true);
+  assert.equal(makeEl('chatMemoryBtn').classList.contains('has-memory'), true);
+  assert.match(makeEl('infoMemoryBadge').textContent, /2/);
   assert.match(makeEl('infoMemoryList').innerHTML, /ชอบโกโก้ร้อน/);
 
   ctx.openMemoryModal();
@@ -1108,7 +1109,6 @@ test('stealth AI auto-memory extracts tags, avoids duplicate extractive prompt b
   assert.equal(ctx.window.activeChatHistory.length, 0);
   assert.equal(ctx.getConversationMemory('Mira'), '');
   assert.equal(vm.runInContext("sessionChatStores['Mira']", ctx), undefined);
-  assert.equal(makeEl('chatMemoryBadge').textContent, '0');
   assert.equal(makeEl('chatMemoryBadge').hidden, true);
   assert.equal(makeEl('toast').textContent.includes('{name}'), false);
   assert.match(makeEl('toast').textContent, /Mira/);
@@ -1269,6 +1269,13 @@ test('v1.0.2: UI SVG icons, message editing (in-place & regenerate), continueSto
           json: async () => ({ text: `คำตอบใหม่รอบที่ ${apiTurnCounter} จาก AI` })
         };
       }
+      if (String(url).endsWith('/api/characters') && init.method === 'POST') {
+        const parsed = JSON.parse(init.body || '{}');
+        return {
+          ok: true,
+          json: async () => ({ id: 'shared-char-1', ...parsed })
+        };
+      }
       return { ok: true, json: async () => ({ ok: true }) };
     },
     localStorage: {
@@ -1383,5 +1390,189 @@ test('v1.0.2: UI SVG icons, message editing (in-place & regenerate), continueSto
   ctx.setAmbientScene('off');
   assert.equal(storage.get('hush-ambient-scene'), 'off');
   assert.equal(makeEl('ambientChatBtn').classList.contains('active'), false);
+});
+
+test('v1.0.3: hidden brain counter badge, framed searchable model picker, and character share/import workflow', async () => {
+  assert.match(html, /id="chatModelPickerBtn"/);
+  assert.match(html, /id="chatModelPickerLabel"/);
+  assert.match(html, /id="modelPickerModal"/);
+  assert.match(html, /id="modelSearchInput"/);
+  assert.match(html, /id="shareCharacterModal"/);
+  assert.match(html, /id="importCharacterModal"/);
+  assert.match(html, /\.memory-count-pill\s*\{\s*display:\s*none\s*!important/);
+
+  const storage = new Map();
+  const elements = new Map();
+  function createMockEl(id = '', tag = 'div') {
+    const classes = new Set();
+    const attrs = {};
+    return {
+      id,
+      tagName: tag.toUpperCase(),
+      value: '',
+      textContent: '',
+      innerHTML: '',
+      disabled: false,
+      hidden: false,
+      checked: false,
+      style: {},
+      dataset: {},
+      children: [],
+      options: [],
+      classList: {
+        add: (...names) => names.forEach(n => classes.add(n)),
+        remove: (...names) => names.forEach(n => classes.delete(n)),
+        toggle: (n, force) => {
+          const next = force === undefined ? !classes.has(n) : !!force;
+          if (next) classes.add(n); else classes.delete(n);
+          return next;
+        },
+        contains: n => classes.has(n)
+      },
+      setAttribute: (k, v) => { attrs[k] = String(v); },
+      getAttribute: k => (k in attrs ? attrs[k] : null),
+      removeAttribute: k => { delete attrs[k]; },
+      querySelector: () => null,
+      querySelectorAll: () => [],
+      appendChild(child) { this.children.push(child); return child; },
+      remove() {},
+      addEventListener: () => {},
+      focus: () => {},
+      select: () => {},
+      click: () => {}
+    };
+  }
+  function makeEl(id) {
+    if (!elements.has(id)) elements.set(id, createMockEl(id));
+    return elements.get(id);
+  }
+
+  const ctx = {
+    console,
+    Math,
+    Date,
+    JSON,
+    Array,
+    Object,
+    Set,
+    Map,
+    RegExp,
+    Error,
+    Promise,
+    Intl,
+    encodeURIComponent,
+    decodeURIComponent,
+    escape,
+    unescape,
+    setTimeout,
+    clearTimeout,
+    requestAnimationFrame: fn => fn(),
+    matchMedia: () => ({ matches: false, addEventListener() {} }),
+    navigator: { language: 'th-TH' },
+    showView: () => {},
+    fetch: async (url, init = {}) => {
+      if (String(url).endsWith('/api/characters') && init.method === 'POST') {
+        const parsed = JSON.parse(init.body || '{}');
+        return { ok: true, json: async () => ({ id: 'imported-1', ...parsed }) };
+      }
+      return { ok: true, json: async () => ({ ok: true }) };
+    },
+    localStorage: {
+      getItem: k => (storage.has(k) ? storage.get(k) : null),
+      setItem: (k, v) => { storage.set(k, String(v)); },
+      removeItem: k => { storage.delete(k); }
+    },
+    sessionStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
+    innerWidth: 1280,
+    innerHeight: 800,
+    addEventListener: () => {},
+    document: {
+      activeElement: null,
+      documentElement: {
+        style: { setProperty: () => {} },
+        setAttribute: () => {},
+        getAttribute: () => null,
+        removeAttribute: () => {}
+      },
+      body: createMockEl('body', 'body'),
+      createElement: tag => createMockEl('', tag),
+      createTextNode: txt => ({ textContent: String(txt) }),
+      getElementById: id => makeEl(id),
+      querySelector: () => null,
+      querySelectorAll: () => [],
+      addEventListener: () => {}
+    }
+  };
+  ctx.window = ctx;
+  ctx.self = ctx;
+  vm.createContext(ctx);
+
+  for (const rel of [
+    'locales/th.js',
+    'locales/en.js',
+    'locales/zh.js',
+    'locales/ja.js',
+    'js/i18n.js',
+    'js/state.js',
+    'js/api.js',
+    'js/characters.js',
+    'js/chat.js',
+    'js/settings.js'
+  ]) {
+    const src = fs.readFileSync(path.join(__dirname, '..', 'public', rel), 'utf8');
+    vm.runInContext(src, ctx, { filename: rel });
+  }
+
+  ctx.switchLocale('th');
+  ctx.setCharacterMemoryList('Mira', ['จำชื่ออากิระได้'], false);
+  assert.equal(makeEl('chatMemoryBadge').hidden, true);
+  assert.equal(makeEl('chatMemoryBadge').textContent, '');
+
+  // 1. Searchable framed Model Picker
+  makeEl('providerSelect').value = 'OpenRouter';
+  storage.set('hush-model-cache', JSON.stringify({
+    OpenRouter: ['openai/gpt-4o-mini', 'anthropic/claude-sonnet-4.6', 'google/gemini-2.5-flash']
+  }));
+  ctx.openModelPickerModal();
+  assert.equal(makeEl('modelPickerModal').classList.contains('show'), true);
+  assert.match(makeEl('modelPickerList').innerHTML, /claude-sonnet-4\.6/);
+  ctx.renderModelPickerList('claude');
+  assert.match(makeEl('modelPickerList').innerHTML, /claude-sonnet-4\.6/);
+  assert.doesNotMatch(makeEl('modelPickerList').innerHTML, /gpt-4o-mini/);
+  assert.match(makeEl('modelPickerCountBadge').textContent, /1/);
+  ctx.selectModelFromPicker('anthropic/claude-sonnet-4.6');
+  assert.equal(makeEl('modelSelect').value, 'anthropic/claude-sonnet-4.6');
+  assert.equal(makeEl('chatModelPickerLabel').textContent, 'anthropic/claude-sonnet-4.6');
+  assert.equal(makeEl('chatModelPickerBtn').classList.contains('has-model'), true);
+  assert.equal(makeEl('modelPickerModal').classList.contains('show'), false);
+
+  // 2. Character share code & import round-trip (including Thai Unicode)
+  ctx.openShareCharacterModal('Mira');
+  assert.equal(makeEl('shareCharacterModal').classList.contains('show'), true);
+  const exportedCode = makeEl('shareCharacterCodeBox').value;
+  assert.match(exportedCode, /^HUSHCHAR-V1:/);
+  ctx.closeShareCharacterModal();
+
+  const customSharedCode = ctx.encodeCharacterShareCode({
+    name: 'โซระ',
+    role: 'นักวาดแผนที่ดวงดาว',
+    desc: 'เดินทางผ่านหอคอยเมฆา',
+    genre: ['แฟนตาซี'],
+    adult: false,
+    systemPrompt: 'พูดจาอ่อนโยน',
+    greeting: 'สวัสดีใต้แสงดาว'
+  });
+  const decoded = ctx.parseSharedCharacterPayload(customSharedCode);
+  assert.equal(decoded.name, 'โซระ');
+  assert.equal(decoded.role, 'นักวาดแผนที่ดวงดาว');
+
+  ctx.openImportCharacterModal();
+  assert.equal(makeEl('importCharacterModal').classList.contains('show'), true);
+  makeEl('importCharacterTextInput').value = customSharedCode;
+  const okImport = await ctx.confirmImportCharacter();
+  assert.equal(okImport, true);
+  assert.equal(makeEl('importCharacterModal').classList.contains('show'), false);
+  const charsAfter = vm.runInContext('characters', ctx);
+  assert.ok(charsAfter.some(c => c.name === 'โซระ' && c.role === 'นักวาดแผนที่ดวงดาว'));
 });
 
