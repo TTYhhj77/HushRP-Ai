@@ -1077,6 +1077,12 @@ test('stealth AI auto-memory extracts tags, avoids duplicate extractive prompt b
   assert.equal(makeEl('chatMemoryBadge').hidden, false);
   assert.match(makeEl('infoMemoryList').innerHTML, /ชอบโกโก้ร้อน/);
 
+  ctx.openMemoryModal();
+  assert.equal(makeEl('memoryModal').classList.contains('show'), true);
+  assert.match(makeEl('memoryModalList').innerHTML, /ชอบโกโก้ร้อน/);
+  ctx.closeMemoryModal();
+  assert.equal(makeEl('memoryModal').classList.contains('show'), false);
+
   // 3. Prompt builder injects AI Auto-Memory & stealth rule without duplicating extractive block
   ctx.setConversationMemory('Mira', 'legacy local extractive summary');
   const msgsWithAiMem = ctx.buildChatMessages(mira, [{ role: 'user', content: 'จำได้ไหม' }]);

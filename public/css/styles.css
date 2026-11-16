@@ -857,7 +857,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .conv-del:hover { color: var(--pink); background: var(--err-bg); }
 .mem-badge { background: var(--ok-bg); border-color: var(--ok-line); color: var(--green); }
 .memory-head-btn { position: relative; }
-.memory-count-pill { position: absolute; top: 2px; right: 2px; min-width: 15px; height: 15px; padding: 0 4px; border-radius: 999px; background: var(--accent); color: var(--accent-ink); font: 600 9px/15px var(--mono); text-align: center; }
+.memory-count-pill { position: absolute; top: 2px; right: 2px; min-width: 15px; height: 15px; padding: 0 4px; border-radius: 999px; background: var(--accent); color: var(--accent-ink); font: 600 9px/15px var(--mono); text-align: center; pointer-events: none; }
+.memory-count-pill[hidden] { display: none; }
 .memory-auto-pill { font: 600 9px var(--mono); color: var(--green); background: var(--ok-bg); border: 1px solid var(--ok-line); padding: 2px 7px; border-radius: 999px; letter-spacing: 0.4px; white-space: nowrap; }
 .info-memory-list { display: grid; gap: 6px; margin: 8px 0 10px; max-height: 190px; overflow-y: auto; }
 .info-memory-item { font-size: 11px; line-height: 1.5; color: var(--soft); background: var(--panel2); border: 1px solid var(--line); border-radius: 7px; padding: 6px 9px; overflow-wrap: anywhere; }
@@ -1008,7 +1009,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 
 /* Modals & Toasts */
 .modal-backdrop { position: fixed; inset: 0; z-index: 50; background: var(--overlay-bg); backdrop-filter: blur(4px); display: none; place-items: center; padding: 20px; }
-.modal-backdrop.show { display: grid; animation: fade-in 0.18s ease both; }
+.modal-backdrop.show, .modal-backdrop.open { display: grid; animation: fade-in 0.18s ease both; }
 .modal {
   width: min(450px, 100%);
   border: 1px solid var(--line-strong);
@@ -1018,7 +1019,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   box-shadow: 0 22px 64px rgba(0, 0, 0, 0.42);
   will-change: transform, opacity;
 }
-.modal-backdrop.show .modal { animation: modal-in 0.24s var(--ease-out) both; }
+.modal-backdrop.show .modal, .modal-backdrop.open .modal { animation: modal-in 0.24s var(--ease-out) both; }
 .modal h2 { font: 500 22px var(--serif); margin: 0 0 7px; }
 .modal p { font-size: 11.5px; color: var(--muted); line-height: 1.6; margin: 0 0 16px; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
@@ -1149,6 +1150,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   .chat-head .avatar{width:31px;height:31px}
   .chat-name{font-size:15.5px}
   .head-actions .icon-button{width:32px;height:34px}
+  .head-actions{flex-shrink:0}
   .chat-list-head{flex-direction:column;align-items:flex-start;gap:10px}
   .chat-list-view{padding:18px 12px 30px}
   .messages{min-height:0;overflow:auto;padding:14px 10px;gap:12px}
@@ -1188,6 +1190,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   .settings-row>div,.provider-controls{min-width:0;width:100%}
   .settings-row p,.settings-help,.help,.intro{overflow-wrap:anywhere;word-break:normal}
   .provider-select{width:100%;max-width:100%;min-width:0}
+  .head-actions .provider-select{width:auto;max-width:112px}
   .provider-controls{display:grid;grid-template-columns:minmax(0,1fr);gap:8px;width:100%}
   .provider-controls .secondary-btn{width:100%}
   .model-select{max-width:none}

@@ -808,19 +808,23 @@ function renderCharacterMemoryUi(charName) {
   }
 }
 
-function openMemoryModal() {
-  if (typeof closeChatMenu === 'function') closeChatMenu();
-  renderCharacterMemoryUi(currentCharacter);
+function openMemoryModal(charName) {
+  if (typeof closeChatMenu === 'function') {
+    const menuEl = document.getElementById('chatMenuModal');
+    if (menuEl && menuEl.classList && menuEl.classList.contains('show')) closeChatMenu();
+  }
+  const target = charName || currentCharacter || (window.activeRoleplayCharacter && window.activeRoleplayCharacter.name) || 'Mira';
+  renderCharacterMemoryUi(target);
   const modal = document.getElementById('memoryModal');
-  if (modal && modal.classList) modal.classList.add('open');
+  if (modal && modal.classList) modal.classList.add('show', 'open');
   playSfx('modalOpen');
 }
 
 function closeMemoryModal() {
   const modal = document.getElementById('memoryModal');
   if (modal && modal.classList) {
-    if (modal.classList.contains('open')) playSfx('modalClose');
-    modal.classList.remove('open');
+    if (modal.classList.contains('show') || modal.classList.contains('open')) playSfx('modalClose');
+    modal.classList.remove('show', 'open');
   }
 }
 
