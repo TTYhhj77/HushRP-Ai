@@ -51,7 +51,11 @@ async function apiChat(messages) {
   const provider = PROVIDER_MAP[selected];
   const rawBase = document.getElementById('baseUrl')?.value.trim() || '';
   const baseUrl = normalizeBaseUrl(rawBase || (provider === 'ollama' ? 'http://localhost:11434/v1' : ''));
-  const model = document.getElementById('modelSelect')?.value.trim() || '';
+  let model = document.getElementById('modelSelect')?.value.trim() || document.getElementById('chatModelSelect')?.value.trim() || '';
+  if (!model && typeof getModelCache === 'function') {
+    const cached = getModelCache()[selected];
+    if (Array.isArray(cached) && cached.length) model = cached[0];
+  }
   if (!provider || !model) throw new Error(t('model_id_required', 'เลือกผู้ให้บริการและโมเดลก่อน'));
 
   const payload = {
@@ -63,7 +67,7 @@ async function apiChat(messages) {
     maxTokens: Math.max(64, Math.min(1200, Number(localStorage.getItem('hush-output-budget') || 300)))
   };
 
-  if (keyMode === 'browser') {
+  if (keyMode === 'browser' && provider !== 'ollama') {
     if (!clientKeyAllowed) throw Error(t('err_server_disables_browser_key', 'Server ปิด browser API key'));
     if (!sessionApiKey) throw Error(t('err_enter_tab_api_key', 'ใส่ API key สำหรับแท็บนี้ก่อน'));
     payload.apiKey=sessionApiKey;

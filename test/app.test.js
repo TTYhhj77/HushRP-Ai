@@ -316,9 +316,10 @@ test('VPS without authToken blocks modifying serverApiKey from Web UI', async ()
   }
 });
 
-test('Ollama supports both /v1/models and /api/tags fallback, LAN hostnames, and dynamic chat URL without empty Bearer header', async () => {
+test('Ollama supports both /v1/models and /api/tags fallback, disables thinking mode, strips think tags, ignores browser keys, and falls back to native /api/chat', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hush-ollama-'));
   const seen = [];
+  let force404OnV1 = false;
   const fakeFetch = async (url, init) => {
     seen.push({ url, headers: init?.headers || {}, body: init?.body ? JSON.parse(init.body) : null });
     if (url === 'http://192.168.1.55:11434/v1/models') {
@@ -328,7 +329,11 @@ test('Ollama supports both /v1/models and /api/tags fallback, LAN hostnames, and
       return new Response(JSON.stringify({ models: [{ name: 'qwen2.5:7b' }] }), { status: 200 });
     }
     if (url === 'http://192.168.1.55:11434/v1/chat/completions') {
-      return new Response(JSON.stringify({ choices: [{ message: { content: 'สวัสดีจาก Ollama' }, finish_reason: 'stop' }] }), { status: 200 });
+      if (force404OnV1) return new Response('not found', { status: 404 });
+      return new Response(JSON.stringify({ choices: [{ message: { content: '<think>planning silently</think>\nสวัสดีจาก Ollama' }, finish_reason: 'stop' }] }), { status: 200 });
+    }
+    if (url === 'http://192.168.1.55:11434/api/chat') {
+      return new Response(JSON.stringify({ message: { role: 'assistant', content: 'ตอบผ่าน native Ollama' }, done_reason: 'stop' }), { status: 200 });
     }
     return new Response('{}', { status: 404 });
   };
@@ -351,6 +356,7 @@ test('Ollama supports both /v1/models and /api/tags fallback, LAN hostnames, and
         provider: 'ollama',
         baseUrl: 'http://192.168.1.55:11434/v1',
         model: 'qwen2.5:7b',
+        apiKey: 'stray-browser-key',
         maxInputTokens: 2400,
         messages: [{ role: 'user', content: 'ทักทาย' }]
       })
@@ -361,6 +367,24 @@ test('Ollama supports both /v1/models and /api/tags fallback, LAN hostnames, and
     const chatCall = seen.find(x => x.url.endsWith('/v1/chat/completions'));
     assert.ok(chatCall);
     assert.equal(chatCall.headers.authorization, undefined);
+    assert.equal(chatCall.body.think, false);
+    assert.equal(chatCall.body.reasoning_effort, 'none');
+    assert.equal(chatCall.body.stream, false);
+    assert.ok(chatCall.body.options && chatCall.body.options.num_ctx >= 2048);
+
+    force404OnV1 = true;
+    const nativeRes = await fetch(base + '/api/chat', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        provider: 'ollama',
+        baseUrl: 'http://192.168.1.55:11434/v1',
+        model: 'qwen2.5:7b',
+        messages: [{ role: 'user', content: 'ทดสอบ native' }]
+      })
+    });
+    assert.equal(nativeRes.status, 200);
+    assert.equal((await nativeRes.json()).text, 'ตอบผ่าน native Ollama');
   } finally {
     await new Promise(resolve => app.server.close(resolve));
     fs.rmSync(dir, { recursive: true, force: true });

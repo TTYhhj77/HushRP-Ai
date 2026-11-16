@@ -136,6 +136,12 @@ function trimToCompleteSentence(text){
   const m=t.match(/^[\s\S]*[.!?…。！？」”)\]\*]/);
   return m&&m[0].length>=Math.floor(t.length*0.4)?m[0]:t;
 }
+function stripThinkingTags(text){
+  return String(text||'')
+    .replace(/<think\b[^>]*>[\s\S]*?<\/think>/gi,'')
+    .replace(/<think\b[^>]*>[\s\S]*$/gi,'')
+    .trim();
+}
 function safeWriteJson(file,data){
   const tmp=`${file}.${crypto.randomBytes(6).toString('hex')}.tmp`;
   fs.writeFileSync(tmp,JSON.stringify(data,null,2)+'\n','utf8');
@@ -204,11 +210,12 @@ function createServer(options={}) {
     if(!body||!SAFE_PROVIDERS.has(body.provider))return {status:400,error:{error:'Unsupported provider'}};
     let base;try{base=new URL(String(body.baseUrl||''))}catch{return {status:400,error:{error:'Invalid provider base URL'}}}
     if(!['https:','http:'].includes(base.protocol))return {status:400,error:{error:'Unsupported provider URL protocol'}};
-    if(body.apiKey&&(!allowClientKeys||!clientKeyHosts.has(base.hostname.toLowerCase())))return {status:403,error:{error:allowClientKeys?'Browser API keys are disabled or not allowed for this provider':'Browser API keys are disabled by server settings'}};
-    if(!body.apiKey&&configuredAuthToken&&!isAuthorized(req))return {status:401,error:{error:'Unauthorized: valid auth token required'}};
+    const isOllama=body.provider==='ollama';
+    if(!isOllama&&body.apiKey&&(!allowClientKeys||!clientKeyHosts.has(base.hostname.toLowerCase())))return {status:403,error:{error:allowClientKeys?'Browser API keys are disabled or not allowed for this provider':'Browser API keys are disabled by server settings'}};
+    if((isOllama||!body.apiKey)&&configuredAuthToken&&!isAuthorized(req))return {status:401,error:{error:'Unauthorized: valid auth token required'}};
     if(body.provider==='openai'&&(base.hostname!=='api.openai.com'||base.protocol!=='https:'))return {status:400,error:{error:'OpenAI base URL must be https://api.openai.com'}};
     if(body.provider==='openrouter'&&(base.hostname!=='openrouter.ai'||base.protocol!=='https:'))return {status:400,error:{error:'OpenRouter base URL must be https://openrouter.ai'}};
-    if(body.provider==='ollama'&&!isAllowedOllamaUrl(base))return {status:400,error:{error:'Ollama requests must target localhost or a private LAN host (not allowed on VPS)'}};
+    if(isOllama&&!isAllowedOllamaUrl(base))return {status:400,error:{error:'Ollama requests must target localhost or a private LAN host (not allowed on VPS)'}};
     if(body.provider==='openai-compatible'){
       if(base.protocol!=='https:')return {status:400,error:{error:'Custom provider URL must use HTTPS'}};
       const dynHosts=runtimeMode!=='vps'?(loadSettings(settingsFile).dynamicCustomHosts||[]):[];
@@ -218,10 +225,10 @@ function createServer(options={}) {
         return {status:400,error:{error:`Custom endpoint host is not on the server allow-list: ${host}`,host,allowedHosts:allowed,canAddDynamic:runtimeMode!=='vps'}};
       }
     }
-    const useClient=allowClientKeys&&clientKeyHosts.has(base.hostname.toLowerCase())&&!!body.apiKey;
+    const useClient=!isOllama&&allowClientKeys&&clientKeyHosts.has(base.hostname.toLowerCase())&&!!body.apiKey;
     const serverKey=getEffectiveServerApiKey();
-    const effectiveKey=useClient?String(body.apiKey):serverKey;
-    if(requireKey&&!effectiveKey&&body.provider!=='ollama')return {status:503,error:{error:missingKeyError}};
+    const effectiveKey=isOllama?'':(useClient?String(body.apiKey):serverKey);
+    if(requireKey&&!effectiveKey&&!isOllama)return {status:503,error:{error:missingKeyError}};
     return {ok:true,base,useClient,effectiveKey,serverKey};
   }
   async function discoverProviderModels({provider,base,useClient,effectiveKey,serverKey}){
@@ -532,7 +539,10 @@ function createServer(options={}) {
           : normalizeProviderBase(resolved.base).toString().replace(/\/$/,'')+'/chat/completions';
         const headers={'content-type':'application/json'};
         if(resolved.effectiveKey)headers.authorization='Bearer '+resolved.effectiveKey;
-        const makeInit=()=>({method:'POST',headers,body:JSON.stringify({model,messages:[{role:'user',content:'Reply with OK'}],max_tokens:8,temperature:0}),signal:AbortSignal.timeout(15000),redirect:'error'});
+        const testPayload=body.provider==='ollama'
+          ? {model,messages:[{role:'user',content:'Reply with OK'}],max_tokens:8,temperature:0,stream:false,think:false,reasoning_effort:'none',options:{num_ctx:2048,num_predict:16}}
+          : {model,messages:[{role:'user',content:'Reply with OK'}],max_tokens:8,temperature:0};
+        const makeInit=()=>({method:'POST',headers,body:JSON.stringify(testPayload),signal:AbortSignal.timeout(body.provider==='ollama'?45000:15000),redirect:'error'});
         const upstream=body.provider==='ollama'?await fetchWithLocalhostFallback(endpoint,makeInit):await httpFetch(endpoint,makeInit());
         const data=await upstream.json().catch(()=>({}));
         if(!upstream.ok)return json(res,502,{ok:false,error:'Provider returned HTTP '+upstream.status});
@@ -629,14 +639,29 @@ function createServer(options={}) {
         : normalizeProviderBase(resolved.base).toString().replace(/\/$/,'')+'/chat/completions';
       const headers={'content-type':'application/json'};
       if(resolved.effectiveKey)headers.authorization='Bearer '+resolved.effectiveKey;
+      const maxTokens=Math.max(64,Math.min(1200,Number(body.maxTokens||process.env.MAX_OUTPUT_TOKENS||300)));
+      const temperature=Math.max(0,Math.min(2,Number(body.temperature??0.8)));
+      const ollamaNumCtx=Math.min(8192,Math.max(2048,maxInputTokens*2));
+      const upstreamPayload=body.provider==='ollama'
+        ? {model,messages:compact.messages,temperature,max_tokens:maxTokens,stream:false,think:false,reasoning_effort:'none',options:{num_ctx:ollamaNumCtx,num_predict:maxTokens,temperature}}
+        : {model,messages:compact.messages,temperature,max_tokens:maxTokens};
+      const timeoutMs=body.provider==='ollama'?180000:60000;
       try{
-        const makeInit=()=>({method:'POST',headers,body:JSON.stringify({model,messages:compact.messages,temperature:Math.max(0,Math.min(2,Number(body.temperature??0.8))),max_tokens:Math.max(64,Math.min(1200,Number(body.maxTokens||process.env.MAX_OUTPUT_TOKENS||300))) }),signal:AbortSignal.timeout(60000),redirect:'error'});
-        const upstream=body.provider==='ollama'?await fetchWithLocalhostFallback(endpoint,makeInit):await httpFetch(endpoint,makeInit());
+        const makeInit=(payloadObj=upstreamPayload)=>({method:'POST',headers,body:JSON.stringify(payloadObj),signal:AbortSignal.timeout(timeoutMs),redirect:'error'});
+        let upstream=body.provider==='ollama'?await fetchWithLocalhostFallback(endpoint,()=>makeInit()):await httpFetch(endpoint,makeInit());
+        if(body.provider==='ollama'&&upstream.status===404){
+          const nativeEndpoint=`${normalizeProviderBase(resolved.base).origin}/api/chat`;
+          upstream=await fetchWithLocalhostFallback(nativeEndpoint,()=>makeInit({model,messages:compact.messages,stream:false,think:false,options:{num_ctx:ollamaNumCtx,num_predict:maxTokens,temperature}}));
+        }
         const data=await upstream.json().catch(()=>({}));if(!upstream.ok)return json(res,502,{error:'Provider request failed ('+upstream.status+'). Check server logs/provider settings.'});
         const choice=data&&data.choices&&data.choices[0];
-        const raw=choice&&choice.message&&choice.message.content;
+        const rawMsg=(choice&&choice.message)||(data&&data.message)||null;
+        let raw=rawMsg&&typeof rawMsg.content==='string'?rawMsg.content:null;
         if(typeof raw!=='string')return json(res,502,{error:'Provider response format was not recognized'});
-        const text=choice.finish_reason==='length'?trimToCompleteSentence(raw):raw;
+        if(body.provider==='ollama'||/<think\b/i.test(raw))raw=stripThinkingTags(raw);
+        if(!raw.trim())return json(res,502,{error:'Model returned an empty response. Try increasing max reply tokens or testing connection.'});
+        const finishReason=(choice&&choice.finish_reason)||(data&&data.done_reason)||'';
+        const text=finishReason==='length'?trimToCompleteSentence(raw):raw;
         return json(res,200,{text});
       }catch(e){console.error('AI upstream error:',e.name);return json(res,502,{error:e.name==='TimeoutError'?'Provider timed out':'Could not connect to provider'});}
     }

@@ -110,14 +110,18 @@ function providerChanged() {
   const provEl = document.getElementById('providerSelect');
   const provider = provEl ? provEl.value : 'OpenAI';
   const prev = readProviderSettings();
+  const cached = getModelCache()[provider];
   const modelEl = document.getElementById('modelSelect');
   const urlEl = document.getElementById('baseUrl');
-  if (modelEl) modelEl.value = '';
+  if (modelEl) modelEl.value = Array.isArray(cached) && cached.length ? cached[0] : '';
   if (urlEl) urlEl.value = PROVIDER_DEFAULTS[provider] || prev.customBaseUrl || '';
   syncPresetButtons(provider);
   saveProviderSettings();
   renderModelChoices();
   updateProviderStatus();
+  if (provider === 'Ollama (local)' && (!Array.isArray(cached) || !cached.length) && typeof fetch === 'function') {
+    loadModels().catch(() => {});
+  }
 }
 
 function useManualModel() {
@@ -338,10 +342,10 @@ async function removeCustomHost(host) {
 async function loadModels() {
   const selected = document.getElementById('providerSelect')?.value || 'OpenAI';
   const provider = PROVIDER_MAP[selected];
-  const baseUrl = normalizeBaseUrl(document.getElementById('baseUrl')?.value.trim() || '');
+  const baseUrl = normalizeBaseUrl(document.getElementById('baseUrl')?.value.trim() || (provider === 'ollama' ? 'http://localhost:11434/v1' : ''));
   const fetchBtn = document.querySelector('#view-settings [onclick="loadModels()"]');
 
-  if (keyMode === 'browser' && (!clientKeyAllowed || !sessionApiKey)) {
+  if (provider !== 'ollama' && keyMode === 'browser' && (!clientKeyAllowed || !sessionApiKey)) {
     if (typeof playSfx === 'function') playSfx('error');
     showToast(t('toast_enter_browser_key_before_fetch', 'ใส่ Browser API key ก่อนดึงโมเดล'));
     return;
@@ -352,7 +356,7 @@ async function loadModels() {
   }
   try {
     const payload = { provider, baseUrl };
-    if (keyMode === 'browser') payload.apiKey = sessionApiKey;
+    if (keyMode === 'browser' && provider !== 'ollama') payload.apiKey = sessionApiKey;
     const { r, data } = await postWithAutoHost('/api/models', payload);
     if (!r.ok) {
       if (data && data.host && !data.canAddDynamic) {
@@ -402,7 +406,7 @@ async function testAiConnection() {
   const baseUrl = normalizeBaseUrl(rawUrl || (provider === 'ollama' ? 'http://localhost:11434/v1' : ''));
   const model = document.getElementById('modelSelect')?.value.trim() || '';
 
-  if (keyMode === 'browser' && (!clientKeyAllowed || !sessionApiKey)) {
+  if (provider !== 'ollama' && keyMode === 'browser' && (!clientKeyAllowed || !sessionApiKey)) {
     const errMsg = t('conn_test_fail', '✗ เชื่อมต่อไม่สำเร็จ: {error}').replace('{error}', t('err_enter_browser_key_first', 'ใส่ Browser API key ก่อน'));
     if (box) { box.hidden = false; box.className = 'conn-test-box err'; box.textContent = errMsg; }
     if (typeof playSfx === 'function') playSfx('error');
@@ -419,7 +423,7 @@ async function testAiConnection() {
 
   try {
     const payload = { provider, baseUrl, model };
-    if (keyMode === 'browser') payload.apiKey = sessionApiKey;
+    if (keyMode === 'browser' && provider !== 'ollama') payload.apiKey = sessionApiKey;
     const { r, data } = await postWithAutoHost('/api/test-connection', payload);
     if (!r.ok || !data.ok) {
       const errText = data.error || t('fetch_models_fail', 'เชื่อมต่อไม่สำเร็จ');
