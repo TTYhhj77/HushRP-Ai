@@ -86,7 +86,7 @@ function compressHistory(history,maxMessages=12){
 // ── Sound Effects & Ambient Soundscape ────────────────────────────────────────
 let audioCtx = null;
 let soundOn = localStorage.getItem('hush-sound') !== 'off';
-const AMBIENT_SCENES = ['off', 'rain', 'fireplace', 'night', 'cafe'];
+const AMBIENT_SCENES = ['off', 'rain', 'fireplace', 'night', 'cafe', 'ocean', 'lofi', 'celestial', 'forest'];
 let ambientScene = (() => {
   try {
     const saved = localStorage.getItem('hush-ambient-scene') || 'off';
@@ -227,25 +227,52 @@ function startAmbientEngine(scene) {
       return { src, filter: null, gain: g };
     };
 
-    const attachPad = (freqs, oscType = 'sine', padGainVal = 0.06) => {
+    const attachFilterLfo = (filterNode, lfoHz, depthHz) => {
+      if (!filterNode || typeof ctx.createOscillator !== 'function') return;
+      const lfo = ctx.createOscillator();
+      const lfoGain = ctx.createGain();
+      lfo.type = 'sine';
+      lfo.frequency.setValueAtTime(lfoHz, ctx.currentTime);
+      lfoGain.gain.setValueAtTime(depthHz, ctx.currentTime);
+      lfo.connect(lfoGain);
+      lfoGain.connect(filterNode.frequency);
+      lfo.start();
+      sources.push(lfo);
+      cleanup.push(lfoGain);
+    };
+
+    const attachPad = (freqs, oscType = 'sine', padGainVal = 0.06, cutoff = 900, breatheHz = 0, breatheDepth = 180) => {
       if (typeof ctx.createOscillator !== 'function') return;
+      let sharedFilter = null;
+      if (hasFilter && breatheHz > 0) {
+        sharedFilter = ctx.createBiquadFilter();
+        sharedFilter.type = 'lowpass';
+        sharedFilter.frequency.setValueAtTime(cutoff, ctx.currentTime);
+        sharedFilter.connect(master);
+        cleanup.push(sharedFilter);
+        attachFilterLfo(sharedFilter, breatheHz, breatheDepth);
+      }
       for (const freq of freqs) {
         const osc = ctx.createOscillator();
         const g = ctx.createGain();
         osc.type = oscType;
         osc.frequency.setValueAtTime(freq, ctx.currentTime);
         g.gain.setValueAtTime(padGainVal, ctx.currentTime);
-        if (hasFilter) {
+        if (sharedFilter) {
+          osc.connect(g);
+          g.connect(sharedFilter);
+        } else if (hasFilter) {
           const lp = ctx.createBiquadFilter();
           lp.type = 'lowpass';
-          lp.frequency.setValueAtTime(900, ctx.currentTime);
+          lp.frequency.setValueAtTime(cutoff, ctx.currentTime);
           osc.connect(lp);
           lp.connect(g);
+          g.connect(master);
           cleanup.push(lp);
         } else {
           osc.connect(g);
+          g.connect(master);
         }
-        g.connect(master);
         osc.start();
         sources.push(osc);
         cleanup.push(g);
@@ -255,37 +282,37 @@ function startAmbientEngine(scene) {
     if (scene === 'rain') {
       const mid = attachNoise('pink', 'bandpass', 980, 0.55, 0.52);
       attachNoise('brown', 'lowpass', 320, 0.7, 0.58);
-      if (mid && mid.filter && typeof ctx.createOscillator === 'function') {
-        const lfo = ctx.createOscillator();
-        const lfoGain = ctx.createGain();
-        lfo.frequency.setValueAtTime(0.16, ctx.currentTime);
-        lfoGain.gain.setValueAtTime(180, ctx.currentTime);
-        lfo.connect(lfoGain);
-        lfoGain.connect(mid.filter.frequency);
-        lfo.start();
-        sources.push(lfo);
-        cleanup.push(lfoGain);
-      }
+      attachFilterLfo(mid?.filter, 0.16, 180);
     } else if (scene === 'fireplace') {
       attachNoise('brown', 'lowpass', 165, 0.8, 0.85);
       attachNoise('crackle', 'bandpass', 2400, 1.4, 0.35);
     } else if (scene === 'night') {
       const breeze = attachNoise('pink', 'bandpass', 410, 1.2, 0.45);
-      if (breeze && breeze.filter && typeof ctx.createOscillator === 'function') {
-        const lfo = ctx.createOscillator();
-        const lfoGain = ctx.createGain();
-        lfo.frequency.setValueAtTime(0.11, ctx.currentTime);
-        lfoGain.gain.setValueAtTime(130, ctx.currentTime);
-        lfo.connect(lfoGain);
-        lfoGain.connect(breeze.filter.frequency);
-        lfo.start();
-        sources.push(lfo);
-        cleanup.push(lfoGain);
-      }
+      attachFilterLfo(breeze?.filter, 0.11, 130);
       attachPad([196.0, 293.66], 'sine', 0.055);
     } else if (scene === 'cafe') {
       attachNoise('pink', 'lowpass', 380, 0.7, 0.45);
       attachPad([220.0, 261.63, 329.63, 392.0], 'triangle', 0.032);
+    } else if (scene === 'ocean') {
+      const surf = attachNoise('brown', 'lowpass', 340, 0.75, 0.62);
+      const mist = attachNoise('pink', 'bandpass', 620, 0.6, 0.24);
+      attachFilterLfo(surf?.filter, 0.11, 220);
+      attachFilterLfo(mist?.filter, 0.11, 190);
+      attachPad([55.0, 110.0], 'sine', 0.03, 260);
+    } else if (scene === 'lofi') {
+      attachNoise('brown', 'lowpass', 260, 0.8, 0.3);
+      attachNoise('crackle', 'bandpass', 1800, 1.2, 0.1);
+      attachPad([174.61, 220.0, 261.63, 329.63, 392.0], 'triangle', 0.028, 720, 0.18, 220);
+      attachPad([87.31], 'sine', 0.045, 320);
+    } else if (scene === 'celestial') {
+      const sheen = attachNoise('pink', 'bandpass', 620, 0.9, 0.16);
+      attachFilterLfo(sheen?.filter, 0.08, 140);
+      attachPad([108.0, 216.0, 324.0, 432.0, 648.0], 'sine', 0.028, 1200, 0.09, 260);
+    } else if (scene === 'forest') {
+      const canopy = attachNoise('pink', 'bandpass', 480, 1.8, 0.42);
+      attachNoise('brown', 'lowpass', 240, 0.7, 0.34);
+      attachFilterLfo(canopy?.filter, 0.14, 170);
+      attachPad([264.0, 396.0, 528.0], 'sine', 0.026, 1100, 0.12, 200);
     }
 
     ambientNodes = { master, sources, cleanup };

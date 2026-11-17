@@ -473,6 +473,27 @@ window.SAMPLE_JA_LOCALE = {
     "import_char_code_ph": "HUSHCHAR-V1:... コードまたはJSONを貼り付け…",
     "import_char_submit_btn": "インポートする",
     "toast_char_imported": "キャラクター「{name}」をインポートしました",
-    "toast_char_import_invalid": "無効なキャラクターファイルまたは共有コードです"
+    "toast_char_import_invalid": "無効なキャラクターファイルまたは共有コードです",
+    "model_picker_active_label": "使用中",
+    "model_filter_all": "すべて",
+    "model_filter_fav": "ピン留め",
+    "model_pin_title": "モデルをピン留め / お気に入り",
+    "model_active_badge": "選択中",
+    "model_custom_use_btn": "入力名を使用",
+    "create_sec_identity": "1. キャラクター基本情報",
+    "create_sec_visuals": "2. カバーテーマと背景",
+    "create_sec_personality": "3. 性格設定と導入シーン",
+    "create_cover_theme_label": "デフォルトカバー（画像未設定時）",
+    "create_upload_cover_btn": "カードカバー画像を選択",
+    "create_upload_bg_btn": "チャット背景画像を選択",
+    "preview_greeting_label": "導入シーンプレビュー",
+    "ambient_ocean": "穏やかな波音",
+    "ambient_lofi": "ドリーミー Lo-Fi パッド",
+    "ambient_celestial": "星屑の残響",
+    "ambient_forest": "松林のそよ風",
+    "ambient_btn_short_ocean": "波音",
+    "ambient_btn_short_lofi": "Lo-Fi",
+    "ambient_btn_short_celestial": "星屑",
+    "ambient_btn_short_forest": "森林"
   }
 };

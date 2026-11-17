@@ -1,6 +1,43 @@
 let pendingImageData = '';
 let pendingCoverData = '';
+let selectedCharArt = 'art2';
+const VALID_CHAR_ARTS = ['art1', 'art2', 'art3', 'art4', 'art5', 'art6'];
+const CHAR_ART_MAP_KEY = 'hush-char-arts';
 const CHARACTER_DRAFT_KEY = 'hush-character-draft';
+
+function getSavedCharArtMap() {
+  try {
+    const o = JSON.parse(localStorage.getItem(CHAR_ART_MAP_KEY) || '{}');
+    return o && typeof o === 'object' ? o : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveCharArtPref(name, artId) {
+  if (!name || !VALID_CHAR_ARTS.includes(artId)) return;
+  try {
+    const map = getSavedCharArtMap();
+    map[name] = artId;
+    localStorage.setItem(CHAR_ART_MAP_KEY, JSON.stringify(map));
+  } catch {}
+}
+
+function selectCharacterArt(artId) {
+  const safeArt = VALID_CHAR_ARTS.includes(artId) ? artId : 'art2';
+  selectedCharArt = safeArt;
+  const picker = document.getElementById('charArtPicker');
+  if (picker && typeof picker.querySelectorAll === 'function') {
+    picker.querySelectorAll('.art-swatch').forEach(btn => {
+      if (btn && btn.classList) btn.classList.toggle('active', btn.dataset?.art === safeArt);
+    });
+  }
+  const artEl = document.getElementById('previewCardArt') || (typeof document.querySelector === 'function' ? document.querySelector('.preview-art') : null);
+  if (artEl) {
+    const hasCover = Boolean(pendingCoverData || (artEl.style && artEl.style.backgroundImage));
+    artEl.className = `preview-art ${safeArt}${hasCover ? ' has-cover' : ''}`;
+  }
+}
 
 const GENRE_I18N_MAP = {
   'แฟนตาซี': 'filter_fantasy',
@@ -83,12 +120,17 @@ async function previewCoverImage(input) {
       p.hidden = false;
       if (p.style) p.style.backgroundImage = `url("${pendingCoverData}")`;
     }
-    const art = document.querySelector('.preview-art');
-    if (art && art.style) {
-      art.style.backgroundImage = `url("${pendingCoverData}")`;
-      art.style.backgroundSize = 'cover';
-      art.style.backgroundPosition = 'center';
+    const art = document.getElementById('previewCardArt') || (typeof document.querySelector === 'function' ? document.querySelector('.preview-art') : null);
+    if (art) {
+      art.className = `preview-art ${selectedCharArt} has-cover`;
+      if (art.style) {
+        art.style.backgroundImage = `url("${pendingCoverData}")`;
+        art.style.backgroundSize = 'cover';
+        art.style.backgroundPosition = 'center';
+      }
     }
+    const badge = document.getElementById('previewAvatarBadge');
+    if (badge) badge.hidden = true;
   } catch (e) {
     pendingCoverData = '';
     if (input) input.value = '';
@@ -102,8 +144,13 @@ function clearCoverImage() {
   if (inp) inp.value = '';
   const p = document.getElementById('coverPreview');
   if (p) p.hidden = true;
-  const art = document.querySelector('.preview-art');
-  if (art && art.style) art.style.backgroundImage = '';
+  const art = document.getElementById('previewCardArt') || (typeof document.querySelector === 'function' ? document.querySelector('.preview-art') : null);
+  if (art) {
+    art.className = `preview-art ${selectedCharArt}`;
+    if (art.style) art.style.backgroundImage = '';
+  }
+  const badge = document.getElementById('previewAvatarBadge');
+  if (badge) badge.hidden = false;
 }
 
 function clearBackgroundImage() {
@@ -119,12 +166,14 @@ async function loadSavedCharacters() {
     const r = await fetch('/api/characters');
     if (!r.ok) return;
     const saved = await r.json();
-    for (const c of saved) {
+    const artMap = getSavedCharArtMap();
+    for (let idx = 0; idx < saved.length; idx++) {
+      const c = saved[idx];
       const i = characters.findIndex(x => (c.id && x.id === c.id) || x.name === c.name);
       const item = {
         ...c,
         creator: 'คุณ',
-        art: c.art || 'art5',
+        art: artMap[c.name] || c.art || `art${(idx % 6) + 1}`,
         avatar: c.avatar || (c.name || '?')[0].toUpperCase()
       };
       if (i >= 0) characters[i] = { ...characters[i], ...item };
@@ -300,6 +349,7 @@ function syncCreateViewModeUi() {
 function updatePreview() {
   const nameVal = document.getElementById('charName')?.value || '';
   const roleVal = document.getElementById('charRole')?.value || '';
+  const greetingVal = document.getElementById('greeting')?.value || '';
   const genreSel = document.getElementById('charGenre');
   const genreLabel = genreSel && genreSel.options && genreSel.selectedIndex >= 0
     ? genreSel.options[genreSel.selectedIndex].textContent
@@ -308,9 +358,13 @@ function updatePreview() {
   const pn = document.getElementById('previewName');
   const pr = document.getElementById('previewRole');
   const pg = document.getElementById('previewGenre');
+  const badge = document.getElementById('previewAvatarBadge');
+  const greetEl = document.getElementById('previewGreetingText');
   if (pn) pn.textContent = nameVal || t('preview_default_name', 'ชื่อตัวละคร');
   if (pr) pr.textContent = roleVal || t('preview_default_role', 'บทบาทของตัวละคร');
   if (pg) pg.textContent = genreLabel;
+  if (badge) badge.textContent = (nameVal.trim()[0] || '?').toUpperCase();
+  if (greetEl) greetEl.textContent = greetingVal.trim() || t('create_greeting_placeholder', 'ตัวละครจะพูดอะไรเป็นประโยคแรก…');
 }
 
 function resetCharacterForm() {
@@ -335,6 +389,7 @@ function resetCharacterForm() {
     pubSw.classList.remove('on');
     pubSw.setAttribute('aria-checked', 'false');
   }
+  selectCharacterArt('art2');
   clearCoverImage();
   clearBackgroundImage();
   syncCreateViewModeUi();
@@ -351,6 +406,7 @@ function saveCharacterDraft() {
       desc: document.getElementById('charDesc')?.value || '',
       systemPrompt: document.getElementById('charPrompt')?.value || '',
       greeting: document.getElementById('greeting')?.value || '',
+      art: selectedCharArt,
       adult: !!document.getElementById('adultSwitch')?.classList.contains('on')
     };
     localStorage.setItem(CHARACTER_DRAFT_KEY, JSON.stringify(draft));
@@ -373,6 +429,7 @@ function loadCharacterDraft() {
     setVal('greeting', d.greeting);
     const gSel = document.getElementById('charGenre');
     if (gSel && d.genre) gSel.value = d.genre;
+    if (d.art) selectCharacterArt(d.art);
     const adultSw = document.getElementById('adultSwitch');
     if (adultSw) {
       adultSw.classList.toggle('on', !!d.adult);
@@ -412,6 +469,7 @@ function editCharacter(id, name) {
   setVal('greeting', c.greeting);
   const gSel = document.getElementById('charGenre');
   if (gSel && Array.isArray(c.genre) && c.genre[0]) gSel.value = c.genre[0];
+  selectCharacterArt(c.art || 'art2');
   const adultSw = document.getElementById('adultSwitch');
   if (adultSw) {
     adultSw.classList.toggle('on', !!c.adult);
@@ -423,12 +481,17 @@ function editCharacter(id, name) {
       p.hidden = false;
       if (p.style) p.style.backgroundImage = `url("${c.avatarUrl}")`;
     }
-    const art = document.querySelector('.preview-art');
-    if (art && art.style) {
-      art.style.backgroundImage = `url("${c.avatarUrl}")`;
-      art.style.backgroundSize = 'cover';
-      art.style.backgroundPosition = 'center';
+    const art = document.getElementById('previewCardArt') || (typeof document.querySelector === 'function' ? document.querySelector('.preview-art') : null);
+    if (art) {
+      art.className = `preview-art ${selectedCharArt} has-cover`;
+      if (art.style) {
+        art.style.backgroundImage = `url("${c.avatarUrl}")`;
+        art.style.backgroundSize = 'cover';
+        art.style.backgroundPosition = 'center';
+      }
     }
+    const badge = document.getElementById('previewAvatarBadge');
+    if (badge) badge.hidden = true;
   }
   if (c.imageUrl) {
     const p = document.getElementById('imagePreview');
@@ -474,7 +537,8 @@ async function saveCharacter() {
   }
   c.role = c.role || t('default_new_char_role', 'ตัวละครใหม่');
   c.desc = c.desc || t('default_new_char_desc', 'ตัวละครที่คุณสร้างเอง');
-  c.art = 'art5';
+  const artChoice = VALID_CHAR_ARTS.includes(selectedCharArt) ? selectedCharArt : `art${(characters.length % 6) + 1}`;
+  c.art = artChoice;
   c.avatar = c.name[0].toUpperCase();
   c.creator = 'คุณ';
   c.greeting = c.greeting || t('default_greeting', 'สวัสดี ยินดีที่ได้พบกัน');
@@ -496,12 +560,13 @@ async function saveCharacter() {
     const saved = await response.json();
     if (!response.ok) throw new Error(saved.error || t('char_save_failed', 'บันทึกตัวละครไม่สำเร็จ'));
 
+    saveCharArtPref(saved.name || c.name, artChoice);
     const idx = characters.findIndex(x =>
       (saved.id && x.id === saved.id) ||
       (isEdit && x.name === editingCharacterOriginalName) ||
       x.name === saved.name
     );
-    const entry = { ...saved, art: 'art5', creator: 'คุณ', avatar: c.avatar };
+    const entry = { ...saved, art: artChoice, creator: 'คุณ', avatar: c.avatar };
     if (idx >= 0) characters[idx] = { ...characters[idx], ...entry };
     else characters.unshift(entry);
 

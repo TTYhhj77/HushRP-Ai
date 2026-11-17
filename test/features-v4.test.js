@@ -1576,3 +1576,195 @@ test('v1.0.3: hidden brain counter badge, framed searchable model picker, and ch
   assert.ok(charsAfter.some(c => c.name === 'โซระ' && c.role === 'นักวาดแผนที่ดวงดาว'));
 });
 
+test('Model picker pinning/vendor/provider switch, Studio cover art themes & fixed cut-out CSS, and chill ambient scenes', async () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'css', 'styles.css'), 'utf8');
+
+  // Fixed bitten/cut-out cover art rules
+  assert.doesNotMatch(css, /\.card-art:after\s*\{[^}]*background:\s*var\(--card-bg\)/);
+  assert.doesNotMatch(css, /\.preview-art:after\s*\{[^}]*background:\s*var\(--panel\)/);
+  assert.match(html, /id="modelPickerProviderTabs"/);
+  assert.match(html, /id="modelPickerVendorChips"/);
+  assert.match(html, /id="charArtPicker"/);
+  assert.match(html, /id="previewCardArt"/);
+  assert.match(html, /id="previewGreetingText"/);
+  for (const scene of ['ocean', 'lofi', 'celestial', 'forest']) {
+    assert.match(html, new RegExp(`<option value="${scene}"`));
+  }
+
+  const elements = new Map();
+  const storage = new Map();
+  let synthCalls = 0;
+
+  class MockAudioContext {
+    constructor() { this.state = 'running'; this.currentTime = 0; this.sampleRate = 44100; this.destination = {}; }
+    resume() { return Promise.resolve(); }
+    createOscillator() {
+      synthCalls += 1;
+      return { type: 'sine', frequency: { value: 440, setValueAtTime() {}, exponentialRampToValueAtTime() {} }, connect() {}, start() {}, stop() {}, disconnect() {} };
+    }
+    createGain() {
+      return { gain: { value: 0, setValueAtTime() {}, exponentialRampToValueAtTime() {}, linearRampToValueAtTime() {} }, connect() {}, disconnect() {} };
+    }
+    createBiquadFilter() {
+      return { type: 'lowpass', frequency: { value: 1000, setValueAtTime() {} }, Q: { value: 1, setValueAtTime() {} }, connect() {}, disconnect() {} };
+    }
+    createBuffer(ch, len) { return { getChannelData: () => new Float32Array(len) }; }
+    createBufferSource() {
+      synthCalls += 1;
+      return { buffer: null, loop: false, connect() {}, start() {}, stop() {}, disconnect() {} };
+    }
+  }
+
+  function createMockEl(id = '', tag = 'div') {
+    const classSet = new Set();
+    const attrs = {};
+    const children = [];
+    const el = {
+      id,
+      tagName: tag.toUpperCase(),
+      value: '',
+      textContent: '',
+      innerHTML: '',
+      hidden: false,
+      disabled: false,
+      checked: false,
+      options: [{ textContent: 'แฟนตาซี', value: 'แฟนตาซี' }],
+      selectedIndex: 0,
+      dataset: {},
+      style: { setProperty() {} },
+      classList: {
+        add(...names) { names.forEach(n => classSet.add(n)); },
+        remove(...names) { names.forEach(n => classSet.delete(n)); },
+        toggle(n, force) {
+          if (typeof force === 'boolean') { if (force) classSet.add(n); else classSet.delete(n); return force; }
+          if (classSet.has(n)) { classSet.delete(n); return false; }
+          classSet.add(n); return true;
+        },
+        contains: n => classSet.has(n)
+      },
+      setAttribute(k, v) { attrs[k] = String(v); },
+      getAttribute: k => attrs[k] ?? null,
+      appendChild(child) { children.push(child); return child; },
+      removeChild(child) { const idx = children.indexOf(child); if (idx >= 0) children.splice(idx, 1); },
+      get firstChild() { return children[0] || null; },
+      querySelectorAll: () => [],
+      addEventListener() {},
+      focus() {}
+    };
+    let cls = '';
+    Object.defineProperty(el, 'className', {
+      get: () => cls,
+      set: v => {
+        cls = String(v || '');
+        classSet.clear();
+        cls.split(/\s+/).filter(Boolean).forEach(n => classSet.add(n));
+      }
+    });
+    return el;
+  }
+
+  function makeEl(id) {
+    if (!elements.has(id)) elements.set(id, createMockEl(id));
+    return elements.get(id);
+  }
+
+  const ctx = {
+    console, Math, Date, JSON, Array, Object, Set, Map, RegExp, Error, Promise, Intl,
+    encodeURIComponent, decodeURIComponent, escape, unescape, setTimeout, clearTimeout,
+    requestAnimationFrame: fn => fn(),
+    AudioContext: MockAudioContext,
+    matchMedia: () => ({ matches: false, addEventListener() {} }),
+    navigator: { language: 'th-TH' },
+    showView: () => {},
+    fetch: async (url, init = {}) => {
+      if (String(url).endsWith('/api/characters') && init.method === 'POST') {
+        const parsed = JSON.parse(init.body || '{}');
+        return { ok: true, json: async () => ({ id: 'studio-char-1', ...parsed }) };
+      }
+      return { ok: true, json: async () => ({ ok: true }) };
+    },
+    localStorage: {
+      getItem: k => (storage.has(k) ? storage.get(k) : null),
+      setItem: (k, v) => { storage.set(k, String(v)); },
+      removeItem: k => { storage.delete(k); }
+    },
+    sessionStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
+    innerWidth: 1280,
+    innerHeight: 800,
+    addEventListener: () => {},
+    document: {
+      activeElement: null,
+      documentElement: { style: { setProperty: () => {} }, setAttribute: () => {}, getAttribute: () => null, removeAttribute: () => {} },
+      body: createMockEl('body', 'body'),
+      createElement: tag => createMockEl('', tag),
+      createTextNode: txt => ({ textContent: String(txt) }),
+      getElementById: id => makeEl(id),
+      querySelector: () => null,
+      querySelectorAll: () => [],
+      addEventListener: () => {}
+    }
+  };
+  ctx.window = ctx;
+  ctx.self = ctx;
+  vm.createContext(ctx);
+
+  for (const rel of [
+    'locales/th.js', 'locales/en.js', 'locales/zh.js', 'locales/ja.js',
+    'js/i18n.js', 'js/state.js', 'js/api.js', 'js/characters.js', 'js/chat.js', 'js/settings.js'
+  ]) {
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'public', rel), 'utf8'), ctx, { filename: rel });
+  }
+
+  ctx.switchLocale('th');
+
+  // 1. Model Picker pinning, vendor chips, and provider switch
+  makeEl('providerSelect').value = 'OpenRouter';
+  storage.set('hush-model-cache', JSON.stringify({
+    OpenRouter: ['openai/gpt-4o-mini', 'anthropic/claude-sonnet-4.6', 'deepseek/deepseek-r1'],
+    'Ollama (local)': ['qwen2.5:7b', 'llama3.2:latest']
+  }));
+  ctx.openModelPickerModal();
+  ctx.togglePinModel('deepseek/deepseek-r1');
+  assert.deepEqual(JSON.parse(storage.get('hush-pinned-models')), ['deepseek/deepseek-r1']);
+  assert.match(makeEl('modelPickerVendorChips').innerHTML, /__fav__/);
+  ctx.setModelVendorFilter('__fav__');
+  assert.match(makeEl('modelPickerList').innerHTML, /deepseek-r1/);
+  assert.doesNotMatch(makeEl('modelPickerList').innerHTML, /claude-sonnet-4\.6/);
+  ctx.setModelVendorFilter('Claude');
+  assert.match(makeEl('modelPickerList').innerHTML, /claude-sonnet-4\.6/);
+  assert.doesNotMatch(makeEl('modelPickerList').innerHTML, /deepseek-r1/);
+  ctx.switchProviderInModal('Ollama (local)');
+  assert.equal(makeEl('providerSelect').value, 'Ollama (local)');
+  assert.equal(makeEl('modelPickerProviderBadge').textContent, 'Ollama (local)');
+  assert.match(makeEl('modelPickerList').innerHTML, /qwen2\.5:7b/);
+
+  // 2. Character Studio art selection & live greeting preview
+  ctx.selectCharacterArt('art4');
+  assert.match(makeEl('previewCardArt').className, /art4/);
+  makeEl('charName').value = 'อาเรีย';
+  makeEl('greeting').value = 'ยินดีต้อนรับสู่หอสมุดราตรี';
+  ctx.updatePreview();
+  assert.equal(makeEl('previewAvatarBadge').textContent, 'อ');
+  assert.equal(makeEl('previewGreetingText').textContent, 'ยินดีต้อนรับสู่หอสมุดราตรี');
+  await ctx.saveCharacter();
+  const savedChars = vm.runInContext('characters', ctx);
+  const created = savedChars.find(c => c.name === 'อาเรีย');
+  assert.equal(created.art, 'art4');
+
+  // 3. New chill/dreamy Ambient scenes
+  for (const [scene, expectedLabel] of [
+    ['ocean', 'คลื่นทะเล'],
+    ['lofi', 'โลไฟ'],
+    ['celestial', 'ดาราจักร'],
+    ['forest', 'ป่าสน']
+  ]) {
+    const before = synthCalls;
+    ctx.setAmbientScene(scene);
+    assert.equal(storage.get('hush-ambient-scene'), scene);
+    assert.equal(makeEl('ambientSelect').value, scene);
+    assert.equal(makeEl('ambientChatLabel').textContent, expectedLabel);
+    assert.ok(synthCalls > before, `Expected Web Audio nodes synthesized for ${scene}`);
+  }
+});
+

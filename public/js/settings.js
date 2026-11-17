@@ -86,14 +86,94 @@ function renderModelChoices() {
   }
 }
 
+const PINNED_MODELS_KEY = 'hush-pinned-models';
+let activeModelVendorFilter = 'all';
+
+function getPinnedModels() {
+  try {
+    const arr = JSON.parse(localStorage.getItem(PINNED_MODELS_KEY) || '[]');
+    return Array.isArray(arr) ? arr.filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
+
+function savePinnedModels(list) {
+  try {
+    localStorage.setItem(PINNED_MODELS_KEY, JSON.stringify(list));
+  } catch {}
+}
+
+function isModelPinned(modelId) {
+  return getPinnedModels().includes(String(modelId || '').trim());
+}
+
+function togglePinModel(modelId, ev) {
+  if (ev && typeof ev.stopPropagation === 'function') ev.stopPropagation();
+  const clean = String(modelId || '').trim();
+  if (!clean) return;
+  const list = getPinnedModels();
+  const idx = list.indexOf(clean);
+  if (idx >= 0) list.splice(idx, 1);
+  else list.unshift(clean);
+  savePinnedModels(list);
+  if (typeof playSfx === 'function') playSfx('tap');
+  renderModelPickerList(document.getElementById('modelSearchInput')?.value || '');
+}
+
+function setModelVendorFilter(vendor) {
+  activeModelVendorFilter = String(vendor || 'all');
+  if (typeof playSfx === 'function') playSfx('tap');
+  renderModelPickerList(document.getElementById('modelSearchInput')?.value || '');
+}
+
+function switchProviderInModal(providerKey) {
+  const sel = document.getElementById('providerSelect');
+  if (sel && providerKey) sel.value = providerKey;
+  activeModelVendorFilter = 'all';
+  if (typeof providerChanged === 'function') providerChanged();
+  if (typeof playSfx === 'function') playSfx('tap');
+  renderModelPickerList(document.getElementById('modelSearchInput')?.value || '');
+}
+
 function extractModelVendorTag(modelId) {
   const m = String(modelId || '').trim();
   if (!m) return '';
-  if (m.startsWith('hf.co/')) return 'HF';
-  if (m.includes('/')) return m.split('/')[0].slice(0, 12);
+  const low = m.toLowerCase();
+  if (low.startsWith('hf.co/')) return 'HF';
+  if (m.includes('/')) {
+    const prefix = low.split('/')[0];
+    const map = {
+      openai: 'OpenAI',
+      anthropic: 'Claude',
+      google: 'Gemini',
+      'meta-llama': 'Llama',
+      deepseek: 'DeepSeek',
+      qwen: 'Qwen',
+      mistralai: 'Mistral',
+      'x-ai': 'Grok'
+    };
+    return map[prefix] || m.split('/')[0].slice(0, 12);
+  }
+  if (/^(gpt-|o1|o3|o4|chatgpt-)/i.test(low)) return 'OpenAI';
+  if (low.includes('claude')) return 'Claude';
+  if (low.includes('gemini') || low.includes('gemma')) return 'Gemini';
+  if (low.includes('deepseek')) return 'DeepSeek';
+  if (low.includes('llama')) return 'Llama';
+  if (low.includes('qwen')) return 'Qwen';
+  if (low.includes('mistral') || low.includes('mixtral')) return 'Mistral';
   if (m.includes(':')) return m.split(':')[1].slice(0, 10);
-  if (/^gpt-/i.test(m)) return 'OpenAI';
   return '';
+}
+
+function formatModelDisplayName(modelId) {
+  const m = String(modelId || '').trim();
+  if (!m) return '';
+  if (m.includes('/')) {
+    const rest = m.split('/').slice(1).join('/');
+    if (rest) return rest;
+  }
+  return m;
 }
 
 function renderModelPickerList(query = '') {
@@ -102,11 +182,64 @@ function renderModelPickerList(query = '') {
   const list = (getModelCache()[provider] || []).slice();
   if (current && list.indexOf(current) < 0) list.unshift(current);
 
-  const q = String(query || '').trim().toLowerCase();
-  const filtered = q ? list.filter(m => m.toLowerCase().includes(q)) : list;
+  const pinnedSet = new Set(getPinnedModels());
+
+  const tabsEl = document.getElementById('modelPickerProviderTabs');
+  if (tabsEl && typeof tabsEl.querySelectorAll === 'function') {
+    tabsEl.querySelectorAll('.model-provider-tab').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.provider === provider);
+    });
+  }
+
+  const bannerEl = document.getElementById('modelPickerCurrentBanner');
+  const currentNameEl = document.getElementById('modelPickerCurrentName');
+  if (bannerEl) bannerEl.hidden = !current;
+  if (currentNameEl) currentNameEl.textContent = current ? `${provider} · ${current}` : '';
 
   const provBadge = document.getElementById('modelPickerProviderBadge');
   if (provBadge) provBadge.textContent = provider;
+
+  const vendors = [];
+  for (const m of list) {
+    const v = extractModelVendorTag(m);
+    if (v && !vendors.includes(v) && vendors.length < 8) vendors.push(v);
+  }
+  if (activeModelVendorFilter !== 'all' && activeModelVendorFilter !== '__fav__' && !vendors.includes(activeModelVendorFilter)) {
+    activeModelVendorFilter = 'all';
+  }
+
+  const chipsEl = document.getElementById('modelPickerVendorChips');
+  if (chipsEl) {
+    const favCount = list.filter(m => pinnedSet.has(m)).length;
+    const allLabel = safe(typeof t === 'function' ? t('model_filter_all', 'ทั้งหมด') : 'ทั้งหมด');
+    const favLabel = safe(typeof t === 'function' ? t('model_filter_fav', 'ติดดาว') : 'ติดดาว');
+    const chips = [
+      `<button type="button" class="model-vendor-chip${activeModelVendorFilter === 'all' ? ' active' : ''}" data-vendor="all" onclick="setModelVendorFilter('all')">${allLabel}</button>`,
+      `<button type="button" class="model-vendor-chip${activeModelVendorFilter === '__fav__' ? ' active' : ''}" data-vendor="__fav__" onclick="setModelVendorFilter('__fav__')">★ ${favLabel}${favCount ? ` (${favCount})` : ''}</button>`
+    ];
+    for (const v of vendors) {
+      const escV = safe(v);
+      chips.push(`<button type="button" class="model-vendor-chip${activeModelVendorFilter === v ? ' active' : ''}" data-vendor="${escV}" onclick="setModelVendorFilter(this.dataset.vendor)">${escV}</button>`);
+    }
+    chipsEl.innerHTML = chips.join('');
+  }
+
+  const q = String(query || '').trim().toLowerCase();
+  let filtered = list.filter(m => {
+    if (activeModelVendorFilter === '__fav__' && !pinnedSet.has(m)) return false;
+    if (activeModelVendorFilter !== 'all' && activeModelVendorFilter !== '__fav__' && extractModelVendorTag(m) !== activeModelVendorFilter) return false;
+    return !q || m.toLowerCase().includes(q);
+  });
+
+  filtered.sort((a, b) => {
+    const ap = pinnedSet.has(a) ? 0 : 1;
+    const bp = pinnedSet.has(b) ? 0 : 1;
+    if (ap !== bp) return ap - bp;
+    const aa = a === current ? 0 : 1;
+    const ba = b === current ? 0 : 1;
+    return aa - ba;
+  });
+
   const countBadge = document.getElementById('modelPickerCountBadge');
   if (countBadge) {
     countBadge.textContent = (typeof t === 'function' ? t('model_picker_count', '{n} โมเดล') : '{n} models').replace('{n}', String(filtered.length));
@@ -122,17 +255,23 @@ function renderModelPickerList(query = '') {
     container.innerHTML = `<div class="empty-note">${safe(t('model_picker_no_match', 'ไม่พบโมเดลที่ตรงกับคำค้น — กดปุ่ม “ใช้ชื่อที่พิมพ์” เพื่อใช้ชื่อนี้ได้ทันที'))}</div>`;
     return;
   }
+  const activeBadgeText = safe(typeof t === 'function' ? t('model_active_badge', 'ใช้อยู่') : 'ใช้อยู่');
+  const pinTitle = safe(typeof t === 'function' ? t('model_pin_title', 'ปักหมุด / ติดดาวโมเดล') : 'ปักหมุด / ติดดาวโมเดล');
   container.innerHTML = filtered.map(m => {
     const active = m === current;
+    const pinned = pinnedSet.has(m);
     const vendor = extractModelVendorTag(m);
+    const displayName = formatModelDisplayName(m);
     const esc = safe(m);
-    return `<button type="button" class="model-option-card${active ? ' active' : ''}" data-model="${esc}" onclick="selectModelFromPicker(this.dataset.model)"><span class="model-option-main">${vendor ? `<span class="model-vendor-tag">${safe(vendor)}</span>` : ''}<span class="model-option-name">${esc}</span></span>${active ? '<span class="model-option-check">✓</span>' : ''}</button>`;
+    const escTitle = safe(displayName);
+    return `<div class="model-option-card${active ? ' active' : ''}" data-model="${esc}"><button type="button" class="model-option-select-btn" data-model="${esc}" onclick="selectModelFromPicker(this.dataset.model)">${vendor ? `<span class="model-vendor-tag">${safe(vendor)}</span>` : ''}<span class="model-option-copy"><span class="model-option-title">${escTitle}</span><span class="model-option-sub">${esc}</span></span></button><div class="model-option-actions">${active ? `<span class="model-active-pill">✓ ${activeBadgeText}</span>` : ''}<button type="button" class="model-option-pin${pinned ? ' pinned' : ''}" title="${pinTitle}" aria-label="${pinTitle}" data-model="${esc}" onclick="togglePinModel(this.dataset.model, event)">${pinned ? '★' : '☆'}</button></div></div>`;
   }).join('');
 }
 
 function openModelPickerModal() {
   const searchEl = document.getElementById('modelSearchInput');
   if (searchEl) searchEl.value = '';
+  activeModelVendorFilter = 'all';
   renderModelPickerList('');
   const modal = document.getElementById('modelPickerModal');
   if (modal && modal.classList) modal.classList.add('show');
