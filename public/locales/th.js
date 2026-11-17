@@ -493,5 +493,11 @@ window.I18N.th = {
   "ambient_btn_short_ocean": "คลื่นทะเล",
   "ambient_btn_short_lofi": "โลไฟ",
   "ambient_btn_short_celestial": "ดาราจักร",
-  "ambient_btn_short_forest": "ป่าสน"
+  "ambient_btn_short_forest": "ป่าสน",
+  "btn_copy_msg": "คัดลอก",
+  "toast_msg_copied": "คัดลอกข้อความแล้ว",
+  "sort_discover_default": "เรียงตาม: แนะนำ",
+  "sort_discover_fav": "เรียงตาม: รายการโปรดก่อน",
+  "sort_discover_mine": "เรียงตาม: ตัวละครของฉันก่อน",
+  "model_search_clear": "ล้างคำค้น"
 };

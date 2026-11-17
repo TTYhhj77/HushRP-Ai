@@ -555,15 +555,40 @@ function getUserAvatarHtml() {
     : `<div class="msg-avatar">${safe((userP.name || 'คุณ')[0].toUpperCase())}</div>`;
 }
 
+function copyMessageAtIndex(index) {
+  const history = window.activeChatHistory || [];
+  const item = history[index];
+  const text = item ? String(item.content || '').trim() : '';
+  if (!text) return;
+  const doneMsg = t('toast_msg_copied', 'คัดลอกข้อความแล้ว');
+  if (typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+    navigator.clipboard.writeText(text)
+      .then(() => { playSfx('tap'); showToast(doneMsg); })
+      .catch(() => showToast(t('toast_copy_failed', 'คัดลอกไม่สำเร็จ')));
+    return;
+  }
+  playSfx('tap');
+  showToast(doneMsg);
+}
+
 function renderMessageActionsHtml(role, index, isLastAssistant = false) {
   const editLabel = safe(t('btn_edit', '✎ แก้ไข'));
+  const copyLabel = safe(t('btn_copy_msg', 'คัดลอก'));
   const editBtn = `<button type="button" class="text-link msg-action-btn" onclick="openEditMessageModal(${index})">${editLabel}</button>`;
-  if (role === 'user') return editBtn;
+  const copyBtn = `<button type="button" class="text-link msg-action-btn" onclick="copyMessageAtIndex(${index})">${copyLabel}</button>`;
+  if (role === 'user') return `${editBtn} · ${copyBtn}`;
   const retryBtn = `<button type="button" class="text-link msg-action-btn" onclick="regenerateReply(${index})">${safe(t('btn_retry', '↺ ลองใหม่'))}</button>`;
   const contBtn = isLastAssistant
     ? `<button type="button" class="text-link msg-action-btn continue-inline-btn" onclick="continueStory()">▶ ${safe(t('chat_btn_continue', 'ดำเนินต่อ'))}</button>`
     : '';
-  return `${editBtn} · ${retryBtn}${contBtn ? ' · ' + contBtn : ''}`;
+  return `${editBtn} · ${copyBtn} · ${retryBtn}${contBtn ? ' · ' + contBtn : ''}`;
+}
+
+function autoResizeComposer(el) {
+  if (!el || !el.style) return;
+  el.style.height = 'auto';
+  const next = Math.min(125, Math.max(44, el.scrollHeight || 44));
+  el.style.height = `${next}px`;
 }
 
 function setComposerBusy(busy) {

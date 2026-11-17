@@ -43,13 +43,26 @@ function mobileNavigate(name) {
 }
 
 document.addEventListener('keydown', event => {
-  if (event.key === 'Escape') {
-    closeMobileMenu();
-    if (typeof closeMemoryModal === 'function') closeMemoryModal();
-    if (typeof closeEditMessageModal === 'function') closeEditMessageModal();
-    if (typeof closeModelPickerModal === 'function') closeModelPickerModal();
-    if (typeof closeShareCharacterModal === 'function') closeShareCharacterModal();
-    if (typeof closeImportCharacterModal === 'function') closeImportCharacterModal();
+  if (event.key !== 'Escape') return;
+  closeMobileMenu();
+  const modalClosers = [
+    ['adultModal', () => typeof closeAdult === 'function' && closeAdult(false)],
+    ['chatMenuModal', () => typeof closeChatMenu === 'function' && closeChatMenu()],
+    ['charInfoModal', () => typeof closeCharInfo === 'function' && closeCharInfo()],
+    ['userProfileModal', () => typeof closeUserProfileModal === 'function' && closeUserProfileModal()],
+    ['languageModal', () => typeof closeLanguageModal === 'function' && closeLanguageModal()],
+    ['customLanguageModal', () => typeof closeCustomLanguageModal === 'function' && closeCustomLanguageModal()],
+    ['memoryModal', () => typeof closeMemoryModal === 'function' && closeMemoryModal()],
+    ['editMessageModal', () => typeof closeEditMessageModal === 'function' && closeEditMessageModal()],
+    ['modelPickerModal', () => typeof closeModelPickerModal === 'function' && closeModelPickerModal()],
+    ['shareCharacterModal', () => typeof closeShareCharacterModal === 'function' && closeShareCharacterModal()],
+    ['importCharacterModal', () => typeof closeImportCharacterModal === 'function' && closeImportCharacterModal()]
+  ];
+  for (const [id, closeFn] of modalClosers) {
+    const el = document.getElementById(id);
+    if (el && el.classList && (el.classList.contains('show') || el.classList.contains('open'))) {
+      closeFn();
+    }
   }
 });
 

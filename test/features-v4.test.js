@@ -1768,3 +1768,200 @@ test('Model picker pinning/vendor/provider switch, Studio cover art themes & fix
   }
 });
 
+test('v1.1.0: wrapped scrollable model vendor chips (>8 categories), search clear, discover sort, copy message, auto-resize composer, avatar themes, and Escape key cleanup', async () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'css', 'styles.css'), 'utf8');
+  const stateJs = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'state.js'), 'utf8');
+
+  // CSS fixes: vendor chips wrap & scroll vertically with visible scrollbar, plus .avatar.art1..art6
+  const vendorChipsCssMatch = css.match(/\.model-picker-vendor-chips\s*\{[^}]+\}/);
+  assert.ok(vendorChipsCssMatch, '.model-picker-vendor-chips rule exists');
+  assert.match(vendorChipsCssMatch[0], /flex-wrap:\s*wrap/);
+  assert.match(vendorChipsCssMatch[0], /overflow-y:\s*auto/);
+  assert.doesNotMatch(vendorChipsCssMatch[0], /scrollbar-width:\s*none/);
+  for (let i = 1; i <= 6; i++) {
+    assert.match(css, new RegExp(`\\.avatar\\.art${i}\\s*\\{`));
+  }
+  assert.match(stateJs, /name:'Mira'[^}]*art:'art1'/);
+  assert.match(html, /id="modelSearchClearBtn"/);
+  assert.match(html, /id="discoverSortBtn"/);
+  assert.match(html, /oninput="autoResizeComposer\(this\)"/);
+
+  const elements = new Map();
+  const storage = new Map();
+  const docListeners = new Map();
+  const copiedTexts = [];
+
+  function createMockEl(id = '', tag = 'div') {
+    const classSet = new Set();
+    const attrs = {};
+    const children = [];
+    const el = {
+      id,
+      tagName: tag.toUpperCase(),
+      value: '',
+      textContent: '',
+      innerHTML: '',
+      hidden: false,
+      disabled: false,
+      scrollHeight: 92,
+      options: [{ textContent: 'แฟนตาซี', value: 'แฟนตาซี' }],
+      selectedIndex: 0,
+      dataset: {},
+      style: { height: '', setProperty() {} },
+      classList: {
+        add(...names) { names.forEach(n => classSet.add(n)); },
+        remove(...names) { names.forEach(n => classSet.delete(n)); },
+        toggle(n, force) {
+          if (typeof force === 'boolean') { if (force) classSet.add(n); else classSet.delete(n); return force; }
+          if (classSet.has(n)) { classSet.delete(n); return false; }
+          classSet.add(n); return true;
+        },
+        contains: n => classSet.has(n)
+      },
+      setAttribute(k, v) { attrs[k] = String(v); },
+      getAttribute: k => attrs[k] ?? null,
+      appendChild(child) { children.push(child); return child; },
+      removeChild(child) { const idx = children.indexOf(child); if (idx >= 0) children.splice(idx, 1); },
+      get firstChild() { return children[0] || null; },
+      querySelector: () => null,
+      querySelectorAll: () => [],
+      addEventListener() {},
+      focus() {}
+    };
+    return el;
+  }
+
+  function makeEl(id) {
+    if (!elements.has(id)) elements.set(id, createMockEl(id));
+    return elements.get(id);
+  }
+
+  const ctx = {
+    console, Math, Date, JSON, Array, Object, Set, Map, RegExp, Error, Promise, Intl,
+    encodeURIComponent, decodeURIComponent, escape, unescape, setTimeout, clearTimeout,
+    requestAnimationFrame: fn => fn(),
+    matchMedia: () => ({ matches: false, addEventListener() {} }),
+    navigator: {
+      language: 'th-TH',
+      clipboard: {
+        writeText: async txt => { copiedTexts.push(txt); }
+      }
+    },
+    showView: () => {},
+    fetch: async (url, init = {}) => {
+      if (String(url).endsWith('/api/characters') && init.method === 'POST') {
+        const parsed = JSON.parse(init.body || '{}');
+        return { ok: true, json: async () => ({ id: 'import-v11', ...parsed }) };
+      }
+      return { ok: true, json: async () => ({ ok: true }) };
+    },
+    localStorage: {
+      getItem: k => (storage.has(k) ? storage.get(k) : null),
+      setItem: (k, v) => { storage.set(k, String(v)); },
+      removeItem: k => { storage.delete(k); }
+    },
+    sessionStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
+    innerWidth: 1280,
+    innerHeight: 800,
+    addEventListener: () => {},
+    document: {
+      activeElement: null,
+      documentElement: { style: { setProperty: () => {} }, setAttribute: () => {}, getAttribute: () => null, removeAttribute: () => {} },
+      body: createMockEl('body', 'body'),
+      createElement: tag => createMockEl('', tag),
+      createTextNode: txt => ({ textContent: String(txt) }),
+      getElementById: id => makeEl(id),
+      querySelector: () => null,
+      querySelectorAll: () => [],
+      addEventListener(type, fn) {
+        if (!docListeners.has(type)) docListeners.set(type, []);
+        docListeners.get(type).push(fn);
+      }
+    }
+  };
+  ctx.window = ctx;
+  ctx.self = ctx;
+  vm.createContext(ctx);
+
+  for (const rel of [
+    'locales/th.js', 'locales/en.js', 'locales/zh.js', 'locales/ja.js',
+    'js/i18n.js', 'js/state.js', 'js/api.js', 'js/characters.js', 'js/chat.js', 'js/settings.js', 'js/app.js'
+  ]) {
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'public', rel), 'utf8'), ctx, { filename: rel });
+  }
+
+  ctx.switchLocale('th');
+
+  // 1. Over 8 vendor categories all appear with per-vendor counts & clear search button toggles cleanly
+  makeEl('providerSelect').value = 'OpenRouter';
+  storage.set('hush-model-cache', JSON.stringify({
+    OpenRouter: [
+      'openai/gpt-4o',
+      'anthropic/claude-sonnet-4.6',
+      'google/gemini-2.5-flash',
+      'deepseek/deepseek-r1',
+      'meta-llama/llama-3.3-70b',
+      'qwen/qwen-2.5-72b',
+      'mistralai/mistral-large',
+      'x-ai/grok-3',
+      'cohere/command-r-plus',
+      'perplexity/sonar-pro',
+      'microsoft/phi-4'
+    ]
+  }));
+  ctx.openModelPickerModal();
+  const chipsHtml = makeEl('modelPickerVendorChips').innerHTML;
+  for (const vendor of ['OpenAI', 'Claude', 'Gemini', 'DeepSeek', 'Llama', 'Qwen', 'Mistral', 'Grok', 'Cohere', 'Perplexity', 'Phi']) {
+    assert.ok(chipsHtml.includes(`data-vendor="${vendor}"`), `Expected vendor chip for ${vendor}`);
+  }
+  assert.match(chipsHtml, /<span class="chip-count">11<\/span>/);
+  assert.equal(makeEl('modelSearchClearBtn').hidden, true);
+
+  makeEl('modelSearchInput').value = 'phi-4';
+  ctx.renderModelPickerList('phi-4');
+  assert.equal(makeEl('modelSearchClearBtn').hidden, false);
+  ctx.clearModelSearch();
+  assert.equal(makeEl('modelSearchInput').value, '');
+  assert.equal(makeEl('modelSearchClearBtn').hidden, true);
+
+  // 2. Discover sort cycles Featured -> Favorites -> My Characters -> Featured
+  ctx.toggleFavorite('Elias');
+  ctx.cycleDiscoverSort();
+  assert.match(makeEl('discoverSortBtn').textContent, /รายการโปรด/);
+  assert.match(makeEl('cards').innerHTML.indexOf('data-name="Elias"') < makeEl('cards').innerHTML.indexOf('data-name="Mira"') ? 'ok' : 'bad', /^ok$/);
+  ctx.cycleDiscoverSort();
+  assert.match(makeEl('discoverSortBtn').textContent, /ตัวละครของฉัน/);
+  ctx.cycleDiscoverSort();
+  assert.match(makeEl('discoverSortBtn').textContent, /แนะนำ/);
+
+  // 3. Message copy & auto-expanding composer textarea
+  ctx.activeChatHistory = [{ role: 'assistant', content: 'สวัสดีใต้แสงจันทร์' }];
+  ctx.copyMessageAtIndex(0);
+  await new Promise(r => setTimeout(r, 10));
+  assert.deepEqual(copiedTexts, ['สวัสดีใต้แสงจันทร์']);
+  assert.match(ctx.renderMessageActionsHtml('assistant', 0, true), /copyMessageAtIndex\(0\)/);
+
+  const msgInp = makeEl('messageInput');
+  msgInp.scrollHeight = 96;
+  ctx.autoResizeComposer(msgInp);
+  assert.equal(msgInp.style.height, '96px');
+  msgInp.scrollHeight = 400;
+  ctx.autoResizeComposer(msgInp);
+  assert.equal(msgInp.style.height, '125px');
+
+  // 4. Import character art persistence
+  const shareCode = ctx.encodeCharacterShareCode({ name: 'ลูน่า', role: 'นักดูดาว', art: 'art6' });
+  makeEl('importCharacterTextInput').value = shareCode;
+  await ctx.confirmImportCharacter();
+  assert.equal(JSON.parse(storage.get('hush-char-arts'))['ลูน่า'], 'art6');
+
+  // 5. Escape closes modals like languageModal & charInfoModal
+  makeEl('languageModal').classList.add('show');
+  makeEl('charInfoModal').classList.add('show');
+  for (const fn of docListeners.get('keydown') || []) fn({ key: 'Escape' });
+  assert.equal(makeEl('languageModal').classList.contains('show'), false);
+  assert.equal(makeEl('charInfoModal').classList.contains('show'), false);
+});
+
+

@@ -493,5 +493,11 @@ window.I18N.en = {
   "ambient_btn_short_ocean": "Ocean",
   "ambient_btn_short_lofi": "Lo-Fi",
   "ambient_btn_short_celestial": "Celestial",
-  "ambient_btn_short_forest": "Forest"
+  "ambient_btn_short_forest": "Forest",
+  "btn_copy_msg": "Copy",
+  "toast_msg_copied": "Copied message",
+  "sort_discover_default": "Sort: Featured",
+  "sort_discover_fav": "Sort: Favorites First",
+  "sort_discover_mine": "Sort: My Characters First",
+  "model_search_clear": "Clear search"
 };

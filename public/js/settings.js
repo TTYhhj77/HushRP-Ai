@@ -136,33 +136,46 @@ function switchProviderInModal(providerKey) {
   renderModelPickerList(document.getElementById('modelSearchInput')?.value || '');
 }
 
-function extractModelVendorTag(modelId) {
+const VENDOR_PREFIX_MAP = {
+  openai: 'OpenAI',
+  anthropic: 'Claude',
+  google: 'Gemini',
+  'meta-llama': 'Llama',
+  deepseek: 'DeepSeek',
+  qwen: 'Qwen',
+  mistralai: 'Mistral',
+  'x-ai': 'Grok',
+  cohere: 'Cohere',
+  perplexity: 'Perplexity',
+  microsoft: 'Phi',
+  '01-ai': 'Yi',
+  nvidia: 'Nvidia'
+};
+
+function extractModelVendorTag(modelId, provider = '') {
   const m = String(modelId || '').trim();
   if (!m) return '';
   const low = m.toLowerCase();
   if (low.startsWith('hf.co/')) return 'HF';
   if (m.includes('/')) {
     const prefix = low.split('/')[0];
-    const map = {
-      openai: 'OpenAI',
-      anthropic: 'Claude',
-      google: 'Gemini',
-      'meta-llama': 'Llama',
-      deepseek: 'DeepSeek',
-      qwen: 'Qwen',
-      mistralai: 'Mistral',
-      'x-ai': 'Grok'
-    };
-    return map[prefix] || m.split('/')[0].slice(0, 12);
+    return VENDOR_PREFIX_MAP[prefix] || m.split('/')[0].slice(0, 12);
   }
   if (/^(gpt-|o1|o3|o4|chatgpt-)/i.test(low)) return 'OpenAI';
   if (low.includes('claude')) return 'Claude';
-  if (low.includes('gemini') || low.includes('gemma')) return 'Gemini';
+  if (low.includes('gemini')) return 'Gemini';
+  if (low.includes('gemma')) return 'Gemma';
   if (low.includes('deepseek')) return 'DeepSeek';
   if (low.includes('llama')) return 'Llama';
   if (low.includes('qwen')) return 'Qwen';
   if (low.includes('mistral') || low.includes('mixtral')) return 'Mistral';
+  if (low.includes('command-r') || low.includes('cohere')) return 'Cohere';
+  if (low.includes('sonar') || low.includes('perplexity')) return 'Perplexity';
+  if (/^phi-?\d|phi\b/.test(low)) return 'Phi';
+  if (/^yi-/.test(low)) return 'Yi';
+  if (low.includes('nemotron')) return 'Nvidia';
   if (m.includes(':')) return m.split(':')[1].slice(0, 10);
+  if (provider === 'Ollama (local)') return 'Local';
   return '';
 }
 
@@ -176,6 +189,16 @@ function formatModelDisplayName(modelId) {
   return m;
 }
 
+function clearModelSearch() {
+  const inp = document.getElementById('modelSearchInput');
+  if (inp) {
+    inp.value = '';
+    inp.focus?.();
+  }
+  if (typeof playSfx === 'function') playSfx('tap');
+  renderModelPickerList('');
+}
+
 function renderModelPickerList(query = '') {
   const provider = document.getElementById('providerSelect')?.value || 'OpenAI';
   const current = String(document.getElementById('modelSelect')?.value || '').trim();
@@ -183,6 +206,9 @@ function renderModelPickerList(query = '') {
   if (current && list.indexOf(current) < 0) list.unshift(current);
 
   const pinnedSet = new Set(getPinnedModels());
+
+  const clearBtn = document.getElementById('modelSearchClearBtn');
+  if (clearBtn) clearBtn.hidden = !String(query || '').trim();
 
   const tabsEl = document.getElementById('modelPickerProviderTabs');
   if (tabsEl && typeof tabsEl.querySelectorAll === 'function') {
@@ -199,12 +225,13 @@ function renderModelPickerList(query = '') {
   const provBadge = document.getElementById('modelPickerProviderBadge');
   if (provBadge) provBadge.textContent = provider;
 
-  const vendors = [];
+  const vendorCounts = new Map();
   for (const m of list) {
-    const v = extractModelVendorTag(m);
-    if (v && !vendors.includes(v) && vendors.length < 8) vendors.push(v);
+    const v = extractModelVendorTag(m, provider);
+    if (v) vendorCounts.set(v, (vendorCounts.get(v) || 0) + 1);
   }
-  if (activeModelVendorFilter !== 'all' && activeModelVendorFilter !== '__fav__' && !vendors.includes(activeModelVendorFilter)) {
+  const vendors = Array.from(vendorCounts.keys());
+  if (activeModelVendorFilter !== 'all' && activeModelVendorFilter !== '__fav__' && !vendorCounts.has(activeModelVendorFilter)) {
     activeModelVendorFilter = 'all';
   }
 
@@ -214,12 +241,13 @@ function renderModelPickerList(query = '') {
     const allLabel = safe(typeof t === 'function' ? t('model_filter_all', 'ทั้งหมด') : 'ทั้งหมด');
     const favLabel = safe(typeof t === 'function' ? t('model_filter_fav', 'ติดดาว') : 'ติดดาว');
     const chips = [
-      `<button type="button" class="model-vendor-chip${activeModelVendorFilter === 'all' ? ' active' : ''}" data-vendor="all" onclick="setModelVendorFilter('all')">${allLabel}</button>`,
-      `<button type="button" class="model-vendor-chip${activeModelVendorFilter === '__fav__' ? ' active' : ''}" data-vendor="__fav__" onclick="setModelVendorFilter('__fav__')">★ ${favLabel}${favCount ? ` (${favCount})` : ''}</button>`
+      `<button type="button" class="model-vendor-chip${activeModelVendorFilter === 'all' ? ' active' : ''}" data-vendor="all" onclick="setModelVendorFilter('all')">${allLabel} <span class="chip-count">${list.length}</span></button>`,
+      `<button type="button" class="model-vendor-chip${activeModelVendorFilter === '__fav__' ? ' active' : ''}" data-vendor="__fav__" onclick="setModelVendorFilter('__fav__')">★ ${favLabel} <span class="chip-count">${favCount}</span></button>`
     ];
     for (const v of vendors) {
       const escV = safe(v);
-      chips.push(`<button type="button" class="model-vendor-chip${activeModelVendorFilter === v ? ' active' : ''}" data-vendor="${escV}" onclick="setModelVendorFilter(this.dataset.vendor)">${escV}</button>`);
+      const cnt = vendorCounts.get(v) || 0;
+      chips.push(`<button type="button" class="model-vendor-chip${activeModelVendorFilter === v ? ' active' : ''}" data-vendor="${escV}" onclick="setModelVendorFilter(this.dataset.vendor)">${escV} <span class="chip-count">${cnt}</span></button>`);
     }
     chipsEl.innerHTML = chips.join('');
   }
@@ -227,7 +255,7 @@ function renderModelPickerList(query = '') {
   const q = String(query || '').trim().toLowerCase();
   let filtered = list.filter(m => {
     if (activeModelVendorFilter === '__fav__' && !pinnedSet.has(m)) return false;
-    if (activeModelVendorFilter !== 'all' && activeModelVendorFilter !== '__fav__' && extractModelVendorTag(m) !== activeModelVendorFilter) return false;
+    if (activeModelVendorFilter !== 'all' && activeModelVendorFilter !== '__fav__' && extractModelVendorTag(m, provider) !== activeModelVendorFilter) return false;
     return !q || m.toLowerCase().includes(q);
   });
 
@@ -260,7 +288,7 @@ function renderModelPickerList(query = '') {
   container.innerHTML = filtered.map(m => {
     const active = m === current;
     const pinned = pinnedSet.has(m);
-    const vendor = extractModelVendorTag(m);
+    const vendor = extractModelVendorTag(m, provider);
     const displayName = formatModelDisplayName(m);
     const esc = safe(m);
     const escTitle = safe(displayName);

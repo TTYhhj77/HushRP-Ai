@@ -493,5 +493,11 @@ window.I18N.zh = {
   "ambient_btn_short_ocean": "海浪",
   "ambient_btn_short_lofi": "Lo-Fi",
   "ambient_btn_short_celestial": "星海",
-  "ambient_btn_short_forest": "松林"
+  "ambient_btn_short_forest": "松林",
+  "btn_copy_msg": "复制",
+  "toast_msg_copied": "已复制消息",
+  "sort_discover_default": "排序：推荐",
+  "sort_discover_fav": "排序：收藏优先",
+  "sort_discover_mine": "排序：我的角色优先",
+  "model_search_clear": "清除搜索"
 };

@@ -221,6 +221,34 @@ function renderFavoriteCards(){
   }).join('');
 }
 
+let discoverSortMode = 'default';
+
+function cycleDiscoverSort() {
+  const order = ['default', 'fav', 'mine'];
+  discoverSortMode = order[(order.indexOf(discoverSortMode) + 1) % order.length];
+  const labelKey = discoverSortMode === 'fav'
+    ? 'sort_discover_fav'
+    : (discoverSortMode === 'mine' ? 'sort_discover_mine' : 'sort_discover_default');
+  const fallback = discoverSortMode === 'fav'
+    ? 'เรียงตาม: รายการโปรดก่อน'
+    : (discoverSortMode === 'mine' ? 'เรียงตาม: ตัวละครของฉันก่อน' : 'เรียงตาม: แนะนำ');
+  const label = typeof t === 'function' ? t(labelKey, fallback) : fallback;
+  const btn = document.getElementById('discoverSortBtn');
+  if (btn) {
+    const span = btn.querySelector ? btn.querySelector('span') : null;
+    if (span) {
+      span.setAttribute('data-i18n', labelKey);
+      span.textContent = label;
+    } else {
+      btn.textContent = `☷ ${label}`;
+    }
+    if (btn.classList) btn.classList.toggle('active-sort', discoverSortMode !== 'default');
+  }
+  if (typeof playSfx === 'function') playSfx('tap');
+  renderCards();
+  showToast(label);
+}
+
 function renderCards(){
   const q = (document.getElementById('searchInput')?.value || '').trim().toLowerCase();
   const data = characters.filter(c => {
@@ -230,6 +258,11 @@ function renderCards(){
     const matchSearch = !q || (c.name + ' ' + c.role + ' ' + lc.role + ' ' + c.desc + ' ' + lc.desc + ' ' + genreSearch).toLowerCase().includes(q);
     return matchFilter && matchSearch;
   });
+  if (discoverSortMode === 'fav') {
+    data.sort((a, b) => (isFavorite(b.name) ? 1 : 0) - (isFavorite(a.name) ? 1 : 0));
+  } else if (discoverSortMode === 'mine') {
+    data.sort((a, b) => (b.creator === 'คุณ' ? 1 : 0) - (a.creator === 'คุณ' ? 1 : 0));
+  }
   const root = document.getElementById('cards');
   if (!root) return;
   if (!data.length) {
@@ -571,6 +604,14 @@ async function saveCharacter() {
     else characters.unshift(entry);
 
     if (isEdit && editingCharacterOriginalName && editingCharacterOriginalName !== saved.name) {
+      try {
+        const artMap = getSavedCharArtMap();
+        if (artMap[editingCharacterOriginalName]) {
+          delete artMap[editingCharacterOriginalName];
+          artMap[saved.name] = artChoice;
+          localStorage.setItem(CHAR_ART_MAP_KEY, JSON.stringify(artMap));
+        }
+      } catch {}
       if (sessionChatStores[editingCharacterOriginalName]) {
         sessionChatStores[saved.name] = sessionChatStores[editingCharacterOriginalName];
         deleteChatSession(editingCharacterOriginalName);
@@ -818,6 +859,7 @@ async function confirmImportCharacter() {
       creator: 'คุณ',
       avatar: saved.avatar || (saved.name || parsed.name)[0].toUpperCase()
     };
+    saveCharArtPref(entry.name, entry.art);
     const idx = characters.findIndex(x => (entry.id && x.id === entry.id) || x.name === entry.name);
     if (idx >= 0) characters[idx] = { ...characters[idx], ...entry };
     else characters.unshift(entry);

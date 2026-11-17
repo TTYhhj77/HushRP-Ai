@@ -494,6 +494,12 @@ window.SAMPLE_JA_LOCALE = {
     "ambient_btn_short_ocean": "波音",
     "ambient_btn_short_lofi": "Lo-Fi",
     "ambient_btn_short_celestial": "星屑",
-    "ambient_btn_short_forest": "森林"
+    "ambient_btn_short_forest": "森林",
+    "btn_copy_msg": "コピー",
+    "toast_msg_copied": "メッセージをコピーしました",
+    "sort_discover_default": "並び順：おすすめ",
+    "sort_discover_fav": "並び順：お気に入り順",
+    "sort_discover_mine": "並び順：自作キャラ順",
+    "model_search_clear": "検索をクリア"
   }
 };
