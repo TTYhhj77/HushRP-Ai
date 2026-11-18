@@ -500,6 +500,20 @@ window.SAMPLE_JA_LOCALE = {
     "sort_discover_default": "並び順：おすすめ",
     "sort_discover_fav": "並び順：お気に入り順",
     "sort_discover_mine": "並び順：自作キャラ順",
-    "model_search_clear": "検索をクリア"
+    "model_search_clear": "検索をクリア",
+    "theme_custom": "カスタムテーマ",
+    "theme_custom_desc": "自分だけの色と背景画像",
+    "custom_theme_title": "カスタムテーマ作成 (Custom Theme)",
+    "custom_theme_sub": "アクセント色・背景色・カード色の変更や、アプリ全体の背景画像を設定できます",
+    "custom_theme_accent": "アクセントカラー",
+    "custom_theme_bg": "メイン背景色",
+    "custom_theme_panel": "カード・パネル色",
+    "custom_theme_text": "テキスト色",
+    "custom_theme_wallpaper": "アプリ背景壁紙 (JPG/PNG/WebP)",
+    "custom_theme_opacity": "背景画像の不透明度",
+    "custom_theme_save_btn": "テーマを保存して適用",
+    "custom_theme_reset_btn": "初期値に戻す",
+    "toast_custom_theme_saved": "カスタムテーマを保存して適用しました",
+    "toast_custom_theme_reset": "カスタムテーマをリセットしました"
   }
 };

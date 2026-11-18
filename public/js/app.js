@@ -10,15 +10,29 @@ function showView(name) {
   if (switched && typeof playSfx === 'function') playSfx('nav');
 }
 
+function openDiscoverSearch() {
+  showView('discover');
+  const inp = document.getElementById('searchInput');
+  if (inp) {
+    inp.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+    inp.focus?.();
+  }
+}
+
 function toggleMobileMenu(force) {
   const opened = force ?? !document.body.classList.contains('mobile-menu-open');
   const button = document.getElementById('mobileMenuToggle');
+  const bottomBtn = document.getElementById('mobileBottomMenuBtn');
   const drawer = document.getElementById('mobileNavDrawer');
   const overlay = document.getElementById('mobileNavOverlay');
   document.body.classList.toggle('mobile-menu-open', opened);
   if (button) {
     button.setAttribute('aria-expanded', String(opened));
     button.setAttribute('aria-label', opened ? t('drawer_close_label', 'ปิดเมนู') : t('drawer_open_label', 'เปิดเมนู'));
+  }
+  if (bottomBtn) {
+    bottomBtn.classList?.toggle('active', opened);
+    bottomBtn.setAttribute?.('aria-expanded', String(opened));
   }
   if (drawer) drawer.inert = !opened;
   if (overlay) overlay.setAttribute('aria-hidden', String(!opened));

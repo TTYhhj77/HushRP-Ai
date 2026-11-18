@@ -1964,4 +1964,192 @@ test('v1.1.0: wrapped scrollable model vendor chips (>8 categories), search clea
   assert.equal(makeEl('charInfoModal').classList.contains('show'), false);
 });
 
+test('v1.1.1: non-overlapping mobile menu toggle in topbar + bottom bar, Custom Theme Studio persistence & CSS vars, and openDiscoverSearch fix', async () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'css', 'styles.css'), 'utf8');
+
+  // 1. Mobile menu toggle sits inside topbar-left (not fixed floating overlay) & bottom nav has mobileBottomMenuBtn
+  assert.match(html, /<header class="topbar"><div class="topbar-left"><button class="icon-button mobile-menu-toggle" id="mobileMenuToggle"/);
+  assert.match(html, /id="mobileBottomMenuBtn"/);
+  assert.match(html, /id="appCustomBg"/);
+  assert.match(html, /id="customThemeBuilder"/);
+  assert.match(css, /\.mobile-menu-toggle\{[^}]*position:relative;top:auto;left:auto/);
+  assert.doesNotMatch(css, /\.mobile-menu-toggle\{[^}]*position:fixed/);
+
+  // 2. Backend persists activeTheme: 'custom' and sanitizes customTheme payload
+  await withCustomServer({}, async base => {
+    const sampleImg = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+    const putRes = await fetch(`${base}/api/settings`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        activeTheme: 'custom',
+        customTheme: {
+          accent: '#FF66AA',
+          bg: '#0E0D14',
+          panel: '#181622',
+          text: '#F7F2FA',
+          bgOpacity: 48,
+          bgImage: sampleImg
+        }
+      })
+    });
+    assert.equal(putRes.status, 200);
+    const got = await (await fetch(`${base}/api/settings`)).json();
+    assert.equal(got.activeTheme, 'custom');
+    assert.equal(got.customTheme.accent, '#ff66aa');
+    assert.equal(got.customTheme.bgOpacity, 48);
+    assert.equal(got.customTheme.bgImage, sampleImg);
+
+    // Rejects invalid CSS/URL injection in customTheme
+    const badRes = await fetch(`${base}/api/settings`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        customTheme: {
+          accent: 'javascript:alert(1)',
+          bgOpacity: 999,
+          bgImage: 'https://evil.example/x.png'
+        }
+      })
+    });
+    assert.equal(badRes.status, 200);
+    const badGot = await (await fetch(`${base}/api/settings`)).json();
+    assert.equal(badGot.customTheme.accent, '#d6aa76');
+    assert.equal(badGot.customTheme.bgOpacity, 85);
+    assert.equal(badGot.customTheme.bgImage, '');
+  });
+
+  // 3. Frontend VM executes Custom Theme Studio, resetCustomTheme, and openDiscoverSearch cleanly
+  const elements = new Map();
+  const storage = new Map();
+  const rootVars = {};
+  const removedVars = [];
+  const rootAttrs = {};
+  let activeView = 'chat';
+  let searchFocused = 0;
+
+  function createMockEl(id = '', tag = 'div') {
+    const classSet = new Set();
+    const attrs = {};
+    const el = {
+      id,
+      tagName: tag.toUpperCase(),
+      value: '',
+      textContent: '',
+      innerHTML: '',
+      hidden: false,
+      disabled: false,
+      dataset: {},
+      style: { backgroundImage: '', opacity: '', background: '', setProperty() {} },
+      classList: {
+        add(...names) { names.forEach(n => classSet.add(n)); },
+        remove(...names) { names.forEach(n => classSet.delete(n)); },
+        toggle(n, force) {
+          if (typeof force === 'boolean') { if (force) classSet.add(n); else classSet.delete(n); return force; }
+          if (classSet.has(n)) { classSet.delete(n); return false; }
+          classSet.add(n); return true;
+        },
+        contains: n => classSet.has(n)
+      },
+      setAttribute(k, v) { attrs[k] = String(v); },
+      getAttribute: k => attrs[k] ?? null,
+      scrollIntoView() {},
+      querySelector: () => null,
+      querySelectorAll: () => [],
+      addEventListener() {},
+      focus() { if (id === 'searchInput') searchFocused += 1; }
+    };
+    return el;
+  }
+
+  function makeEl(id) {
+    if (!elements.has(id)) elements.set(id, createMockEl(id));
+    return elements.get(id);
+  }
+
+  const ctx = {
+    console, Math, Date, JSON, Array, Object, Set, Map, RegExp, Error, Promise, Intl,
+    encodeURIComponent, decodeURIComponent, escape, unescape, setTimeout, clearTimeout,
+    requestAnimationFrame: fn => fn(),
+    matchMedia: () => ({ matches: false, addEventListener() {} }),
+    navigator: { language: 'th-TH' },
+    fetch: async () => ({ ok: true, json: async () => ({}) }),
+    localStorage: {
+      getItem: k => (storage.has(k) ? storage.get(k) : null),
+      setItem: (k, v) => { storage.set(k, String(v)); },
+      removeItem: k => { storage.delete(k); }
+    },
+    sessionStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
+    innerWidth: 390,
+    innerHeight: 844,
+    addEventListener: () => {},
+    document: {
+      activeElement: null,
+      documentElement: {
+        style: {
+          setProperty: (k, v) => { rootVars[k] = String(v); },
+          removeProperty: k => { delete rootVars[k]; removedVars.push(k); }
+        },
+        setAttribute: (k, v) => { rootAttrs[k] = String(v); },
+        getAttribute: k => rootAttrs[k] ?? null,
+        removeAttribute: k => { delete rootAttrs[k]; }
+      },
+      body: createMockEl('body', 'body'),
+      createElement: tag => createMockEl('', tag),
+      createTextNode: txt => ({ textContent: String(txt) }),
+      getElementById: id => makeEl(id),
+      querySelector: () => null,
+      querySelectorAll: () => [],
+      addEventListener: () => {}
+    }
+  };
+  ctx.window = ctx;
+  ctx.self = ctx;
+  vm.createContext(ctx);
+
+  for (const rel of [
+    'locales/th.js', 'locales/en.js', 'locales/zh.js', 'locales/ja.js',
+    'js/i18n.js', 'js/state.js', 'js/api.js', 'js/characters.js', 'js/chat.js', 'js/settings.js', 'js/app.js'
+  ]) {
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'public', rel), 'utf8'), ctx, { filename: rel });
+  }
+  ctx.showView = name => { activeView = name; };
+
+  // Custom theme draft, save, clear, reset
+  makeEl('customThemeAccent').value = '#ff77aa';
+  makeEl('customThemeBg').value = '#101018';
+  makeEl('customThemePanel').value = '#1a1a28';
+  makeEl('customThemeText').value = '#f5f0ff';
+  makeEl('customThemeBgOpacity').value = '45';
+  ctx.updateCustomThemeDraft();
+  assert.equal(rootAttrs['data-theme'], 'custom');
+  assert.equal(rootVars['--accent'], '#ff77aa');
+  assert.equal(makeEl('customThemeBgOpacityVal').textContent, '45%');
+
+  ctx.saveCustomTheme();
+  assert.equal(storage.get('hush-theme'), 'custom');
+  assert.equal(JSON.parse(storage.get('hush-custom-theme')).accent, '#ff77aa');
+
+  // Switching back to obsidian removes inline custom CSS variables cleanly
+  ctx.applyTheme('obsidian');
+  assert.equal(rootAttrs['data-theme'], undefined);
+  assert.ok(removedVars.includes('--accent'));
+
+  ctx.resetCustomTheme();
+  assert.equal(storage.get('hush-custom-theme'), undefined);
+  assert.equal(makeEl('customThemeAccent').value, '#d6aa76');
+
+  // Topbar search bug fix: switches to discover before focusing searchInput
+  ctx.openDiscoverSearch();
+  assert.equal(activeView, 'discover');
+  assert.equal(searchFocused, 1);
+
+  // Mobile toggle syncs both topbar toggle and bottom nav button
+  ctx.toggleMobileMenu(true);
+  assert.equal(makeEl('mobileMenuToggle').getAttribute('aria-expanded'), 'true');
+  assert.equal(makeEl('mobileBottomMenuBtn').classList.contains('active'), true);
+});
+
+
 

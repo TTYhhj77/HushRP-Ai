@@ -499,5 +499,19 @@ window.I18N.th = {
   "sort_discover_default": "เรียงตาม: แนะนำ",
   "sort_discover_fav": "เรียงตาม: รายการโปรดก่อน",
   "sort_discover_mine": "เรียงตาม: ตัวละครของฉันก่อน",
-  "model_search_clear": "ล้างคำค้น"
+  "model_search_clear": "ล้างคำค้น",
+  "theme_custom": "กำหนดเอง (Custom)",
+  "theme_custom_desc": "สีและภาพพื้นหลังของคุณ",
+  "custom_theme_title": "สร้างธีมของคุณเอง (Custom Theme Studio)",
+  "custom_theme_sub": "ปรับแต่งสีหลัก สีพื้นหลัง สีการ์ด และอัปโหลดภาพพื้นหลังของแอปได้ตามต้องการ",
+  "custom_theme_accent": "สีไฮไลต์หลัก (Accent)",
+  "custom_theme_bg": "สีพื้นหลัง (Background)",
+  "custom_theme_panel": "สีการ์ดและหน้าต่าง (Panel)",
+  "custom_theme_text": "สีตัวอักษร (Text)",
+  "custom_theme_wallpaper": "ภาพพื้นหลังของแอป (Wallpaper · JPG/PNG/WebP)",
+  "custom_theme_opacity": "ความชัดของภาพพื้นหลัง",
+  "custom_theme_save_btn": "บันทึก & ใช้ธีมนี้",
+  "custom_theme_reset_btn": "รีเซ็ตค่าเริ่มต้น",
+  "toast_custom_theme_saved": "บันทึกและเปิดใช้ธีมของคุณแล้ว",
+  "toast_custom_theme_reset": "รีเซ็ตธีมกำหนดเองกลับเป็นค่าเริ่มต้นแล้ว"
 };

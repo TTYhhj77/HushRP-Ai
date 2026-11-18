@@ -657,7 +657,8 @@ const CACHE_KEYS = {
   favorites: 'hush-favorites',
   activeLocale: 'hush-locale',
   customLocales: 'hush-custom-locales',
-  activeTheme: 'hush-theme'
+  activeTheme: 'hush-theme',
+  customTheme: 'hush-custom-theme'
 };
 
 function cacheSet(name, value) {

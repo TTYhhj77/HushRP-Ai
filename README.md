@@ -3,7 +3,7 @@
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D20-brightgreen.svg)](https://nodejs.org)
 [![Zero Dependencies](https://img.shields.io/badge/dependencies-0-blue.svg)](package.json)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-288%20passing-success.svg)](test/)
+[![Tests](https://img.shields.io/badge/tests-289%20passing-success.svg)](test/)
 
 HushRP is a self-hostable AI roleplay web application built on pure Node.js with no runtime npm dependencies. It is designed for maximum privacy and portability: there is no database daemon, no build step, and no bundler. The frontend is served as clean modular static files (`public/`) directly by the built-in Node.js server. All persistent state is stored as atomic JSON files on the host filesystem.
 
@@ -358,7 +358,7 @@ The test suite uses the Node.js built-in test runner. No additional test framewo
 node --test
 ```
 
-Current status: **288 tests passing, 0 failing** (plus 2 environment-conditional skips on Windows when `bash` / Docker Compose are absent).
+Current status: **289 tests passing, 0 failing** (plus 2 environment-conditional skips on Windows when `bash` / Docker Compose are absent).
 
 | Test file | Coverage area |
 |---|---|

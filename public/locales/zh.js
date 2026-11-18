@@ -499,5 +499,19 @@ window.I18N.zh = {
   "sort_discover_default": "排序：推荐",
   "sort_discover_fav": "排序：收藏优先",
   "sort_discover_mine": "排序：我的角色优先",
-  "model_search_clear": "清除搜索"
+  "model_search_clear": "清除搜索",
+  "theme_custom": "自定义主题",
+  "theme_custom_desc": "自定义颜色与背景图",
+  "custom_theme_title": "自定义主题工坊 (Custom Theme)",
+  "custom_theme_sub": "自由调整强调色、背景色、卡片颜色，或上传专属应用背景壁纸",
+  "custom_theme_accent": "主题强调色 (Accent)",
+  "custom_theme_bg": "主背景色 (Background)",
+  "custom_theme_panel": "卡片与面板色 (Panel)",
+  "custom_theme_text": "文字颜色 (Text)",
+  "custom_theme_wallpaper": "应用背景壁纸 (JPG/PNG/WebP)",
+  "custom_theme_opacity": "背景图透明度",
+  "custom_theme_save_btn": "保存并应用主题",
+  "custom_theme_reset_btn": "重置自定义主题",
+  "toast_custom_theme_saved": "已保存并应用自定义主题",
+  "toast_custom_theme_reset": "已重置自定义主题"
 };

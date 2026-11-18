@@ -499,5 +499,19 @@ window.I18N.en = {
   "sort_discover_default": "Sort: Featured",
   "sort_discover_fav": "Sort: Favorites First",
   "sort_discover_mine": "Sort: My Characters First",
-  "model_search_clear": "Clear search"
+  "model_search_clear": "Clear search",
+  "theme_custom": "Custom Theme",
+  "theme_custom_desc": "Your colors & wallpaper",
+  "custom_theme_title": "Custom Theme Studio",
+  "custom_theme_sub": "Customize accent, background, card colors, and upload your own app wallpaper",
+  "custom_theme_accent": "Accent Color",
+  "custom_theme_bg": "Background Color",
+  "custom_theme_panel": "Card & Panel Color",
+  "custom_theme_text": "Text Color",
+  "custom_theme_wallpaper": "App Background Wallpaper (JPG/PNG/WebP)",
+  "custom_theme_opacity": "Wallpaper Opacity",
+  "custom_theme_save_btn": "Save & Apply Theme",
+  "custom_theme_reset_btn": "Reset Custom Theme",
+  "toast_custom_theme_saved": "Saved and applied your custom theme",
+  "toast_custom_theme_reset": "Reset custom theme to defaults"
 };

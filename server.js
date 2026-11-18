@@ -25,7 +25,7 @@ function readJson(req, limit = MAX_BODY) {
   });
 }
 function loadCharacters(file){try{const arr=JSON.parse(fs.readFileSync(file,'utf8'));return Array.isArray(arr)?arr:[]}catch{return []}}
-const SETTINGS_KEYS=new Set(['globalPrompt','tokenBudget','replyBudget','worldSettings','providerSettings','modelCache','userProfiles','activeProfileId','favorites','activeLocale','customLocales','dynamicCustomHosts','serverApiKey','activeTheme']);
+const SETTINGS_KEYS=new Set(['globalPrompt','tokenBudget','replyBudget','worldSettings','providerSettings','modelCache','userProfiles','activeProfileId','favorites','activeLocale','customLocales','dynamicCustomHosts','serverApiKey','activeTheme','customTheme']);
 function loadSettings(file){try{const o=JSON.parse(fs.readFileSync(file,'utf8'));return o&&typeof o==='object'&&!Array.isArray(o)?o:{}}catch{return {}}}
 function timingSafeCheck(a, b){
   if(typeof a !== 'string' || typeof b !== 'string') return false;
@@ -82,7 +82,22 @@ function sanitizeSetting(key,value){
   if(key==='globalPrompt')return String(value||'').slice(0,8000);
   if(key==='activeProfileId')return String(value||'').slice(0,100);
   if(key==='activeLocale')return /^[a-zA-Z0-9_-]{2,20}$/.test(String(value||''))?String(value).slice(0,20):'th';
-  if(key==='activeTheme')return ['obsidian','sakura','emerald','ocean','parchment'].includes(String(value||''))?String(value):'obsidian';
+  if(key==='activeTheme')return ['obsidian','sakura','emerald','ocean','parchment','custom'].includes(String(value||''))?String(value):'obsidian';
+  if(key==='customTheme'){
+    if(!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).length===0)return {};
+    const hex=(v,def)=>/^#[0-9a-fA-F]{6}$/.test(String(v||''))?String(v).toLowerCase():def;
+    const rawBg=String(value.bgImage||'');
+    const safeBg=/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(rawBg)&&rawBg.length<=2500000?rawBg:'';
+    const rawOp=Number(value.bgOpacity);
+    return {
+      accent:hex(value.accent,'#d6aa76'),
+      bg:hex(value.bg,'#12110f'),
+      panel:hex(value.panel,'#1a1815'),
+      text:hex(value.text,'#f3eee5'),
+      bgOpacity:Number.isFinite(rawOp)?Math.max(0,Math.min(85,Math.round(rawOp))):32,
+      bgImage:safeBg
+    };
+  }
   if(key==='customLocales'){
     if(!value||typeof value!=='object'||Array.isArray(value))return {};
     const out={};
@@ -426,7 +441,7 @@ function createServer(options={}) {
     if(req.method==='GET'&&url.pathname==='/api/settings')return json(res,200,redactSettings(loadSettings(settingsFile)));
     if(req.method==='PUT'&&url.pathname==='/api/settings'){
       if(!isAuthorized(req))return json(res, 401, {error: 'Unauthorized: valid auth token required'});
-      let body;try{body=await readJson(req, 1024 * 1024)}catch(e){return json(res,e.status||400,{error:e.status===413?'Request too large':'Invalid request'})}
+      let body;try{body=await readJson(req, 3 * 1024 * 1024)}catch(e){return json(res,e.status||400,{error:e.status===413?'Request too large':'Invalid request'})}
       if(!body||typeof body!=='object'||Array.isArray(body))return json(res,400,{error:'Invalid settings'});
       if(Object.prototype.hasOwnProperty.call(body,'serverApiKey')&&runtimeMode==='vps'&&!configuredAuthToken){
         return json(res,403,{error:'Changing server API key from Web UI in VPS mode requires AUTH_TOKEN'});
