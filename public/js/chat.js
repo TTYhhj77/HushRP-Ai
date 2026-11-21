@@ -584,20 +584,48 @@ function renderMessageActionsHtml(role, index, isLastAssistant = false) {
   return `${editBtn} · ${copyBtn} · ${retryBtn}${contBtn ? ' · ' + contBtn : ''}`;
 }
 
+let activeChatAbortController = null;
+
 function autoResizeComposer(el) {
   if (!el || !el.style) return;
+  const maxH = typeof document !== 'undefined' && document.body?.classList?.contains?.('keyboard-open') ? 84 : 125;
   el.style.height = 'auto';
-  const next = Math.min(125, Math.max(44, el.scrollHeight || 44));
+  const next = Math.min(maxH, Math.max(44, el.scrollHeight || 44));
   el.style.height = `${next}px`;
+}
+
+function beginTurnAbortController() {
+  if (activeChatAbortController) {
+    try { activeChatAbortController.abort(); } catch {}
+  }
+  activeChatAbortController = typeof AbortController === 'function' ? new AbortController() : null;
+  return activeChatAbortController ? activeChatAbortController.signal : null;
+}
+
+function stopGeneratingReply() {
+  if (!window.isGeneratingReply) return false;
+  if (activeChatAbortController) {
+    try { activeChatAbortController.abort(); } catch {}
+    activeChatAbortController = null;
+  }
+  if (typeof playSfx === 'function') playSfx('tap');
+  showToast(t('toast_gen_stopped', 'หยุดการสร้างคำตอบแล้ว'));
+  return true;
 }
 
 function setComposerBusy(busy) {
   window.isGeneratingReply = !!busy;
+  if (!busy) activeChatAbortController = null;
   const input = document.getElementById('messageInput');
   const send = document.querySelector?.('.send');
+  const stopBtn = document.getElementById('stopGenBtn');
   const contBtn = document.getElementById('continueStoryBtn');
   if (input) input.disabled = !!busy;
-  if (send) send.disabled = !!busy;
+  if (send) {
+    send.disabled = !!busy;
+    send.hidden = !!busy;
+  }
+  if (stopBtn) stopBtn.hidden = !busy;
   if (contBtn) contBtn.disabled = !!busy;
 }
 
@@ -769,6 +797,7 @@ async function sendMessage() {
   const cAvHtml = getCharacterAvatarHtml(c);
   const wait = appendTypingBubble(msgs, cAvHtml);
 
+  beginTurnAbortController();
   try {
     const payload=buildChatMessages(window.activeRoleplayCharacter,history.slice(-24));
     const answer=await apiChat(payload);
@@ -781,6 +810,7 @@ async function sendMessage() {
     playSfx('receive');
   } catch (e) {
     wait.remove();
+    if (e && e.name === 'AbortError') return;
     playSfx('error');
     appendErrorBubble(msgs, e.message);
   } finally {
@@ -817,6 +847,7 @@ async function regenerateReply(targetIndex) {
   const cAvHtml = getCharacterAvatarHtml(c);
   const wait = appendTypingBubble(msgs, cAvHtml);
   setComposerBusy(true);
+  beginTurnAbortController();
 
   try {
     const payload=buildChatMessages(window.activeRoleplayCharacter,history.slice(-24));
@@ -829,6 +860,7 @@ async function regenerateReply(targetIndex) {
     playSfx('receive');
   } catch (e) {
     wait.remove();
+    if (e && e.name === 'AbortError') return;
     playSfx('error');
     appendErrorBubble(msgs, e.message);
     showToast(e.message || t('ai_chat_failed', 'คุยกับ AI ไม่สำเร็จ'));
@@ -853,6 +885,7 @@ async function continueStory() {
   const wait = appendTypingBubble(msgs, cAvHtml);
   if (msgs) msgs.scrollTop = msgs.scrollHeight;
   setComposerBusy(true);
+  const signal = beginTurnAbortController();
 
   try {
     const basePayload = buildChatMessages(window.activeRoleplayCharacter, history.slice(-24));
@@ -866,7 +899,7 @@ async function continueStory() {
         )
       }
     ];
-    const answer = await apiChat(payload);
+    const answer = await apiChat(payload, { signal });
     const cleanAnswer = autoRecordTurnMemory(currentCharacter, '', answer);
     history.push({ role: 'assistant', content: cleanAnswer });
     removePriorContinueButtons(msgs);
@@ -874,6 +907,7 @@ async function continueStory() {
     playSfx('receive');
   } catch (e) {
     wait.remove();
+    if (e && e.name === 'AbortError') return;
     playSfx('error');
     appendErrorBubble(msgs, e.message);
     showToast(e.message || t('ai_chat_failed', 'คุยกับ AI ไม่สำเร็จ'));
@@ -1013,12 +1047,17 @@ function exportChatMarkdown() {
     const speaker = m.role === 'assistant' ? c.name : userName;
     md += `### ${speaker}\n${m.content}\n\n`;
   }
-  if (typeof Blob === 'function' && typeof URL !== 'undefined' && URL.createObjectURL) {
+  const fname = `roleplay-${c.name}-${Date.now()}.md`;
+  if (typeof saveFileNativeOrBrowser === 'function') {
+    if (saveFileNativeOrBrowser(fname, 'text/markdown;charset=utf-8', md)) {
+      showToast(t('export_md_done', 'บันทึกเรื่องราวเป็นไฟล์ Markdown แล้ว'));
+    }
+  } else if (typeof Blob === 'function' && typeof URL !== 'undefined' && URL.createObjectURL) {
     const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `roleplay-${c.name}-${Date.now()}.md`;
+    a.download = fname;
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -1398,10 +1437,7 @@ function restartChat() {
 let mobileViewportInitialized = false;
 
 function autoResizeChatInput(el) {
-  if (!el || !el.style) return;
-  const maxH = typeof document !== 'undefined' && document.body?.classList?.contains?.('keyboard-open') ? 84 : 125;
-  el.style.height = 'auto';
-  el.style.height = Math.min(Math.max(el.scrollHeight || 42, 42), maxH) + 'px';
+  autoResizeComposer(el);
 }
 
 function syncMobileChatViewport() {
@@ -1440,7 +1476,6 @@ function initMobileChatViewport() {
   const input = typeof document !== 'undefined' ? document.getElementById('messageInput') : null;
   if (input && input.addEventListener) {
     input.addEventListener('input', () => {
-      autoResizeChatInput(input);
       if (document.body?.classList?.contains?.('keyboard-open')) {
         const msgs = document.getElementById('messages');
         if (msgs) msgs.scrollTop = msgs.scrollHeight;

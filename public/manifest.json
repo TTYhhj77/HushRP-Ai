@@ -1,0 +1,19 @@
+{
+  "name": "HushRP — AI Roleplay",
+  "short_name": "HushRP",
+  "description": "Private, lightweight AI roleplay companion with Stealth Auto-Memory, Custom Theme Studio, and Ambient Soundscapes.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#12110f",
+  "theme_color": "#12110f",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

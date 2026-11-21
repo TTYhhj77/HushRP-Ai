@@ -9,3 +9,9 @@ data/sessions/
 *.log
 .DS_Store
 Thumbs.db
+android/.gradle/
+android/build/
+android/app/build/
+android/app/src/main/assets/
+android/local.properties
+*.apk

@@ -578,9 +578,10 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   min-width: 0;
   position: relative;
   transform-origin: 50% 85%;
+  content-visibility: auto;
+  contain-intrinsic-size: 250px;
   animation: rise-in 0.38s var(--ease-out) both;
   transition: transform 0.26s var(--ease-out), border-color 0.22s ease, box-shadow 0.26s ease;
-  will-change: transform;
 }
 .character-card:nth-child(1) { animation-delay: 0.04s; }
 .character-card:nth-child(2) { animation-delay: 0.08s; }
@@ -798,6 +799,23 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 }
 .compose-tools { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .compose-tools .icon-button { width: 31px; height: 31px; }
+.stop-gen-btn {
+  margin-left: auto;
+  border: 1px solid var(--err-line);
+  border-radius: 8px;
+  background: var(--err-bg);
+  color: var(--pink);
+  height: 32px;
+  padding: 0 11px;
+  font-size: 11px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  transition: background-color 0.16s ease, transform 0.15s ease;
+}
+.stop-gen-btn:hover { background: var(--err-line); color: #fff; }
+.stop-gen-btn[hidden] { display: none; }
 .send {
   margin-left: auto;
   border: 0;
@@ -897,6 +915,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   min-width: 0;
   max-width: 100%;
   overflow: hidden;
+  content-visibility: auto;
+  contain-intrinsic-size: 86px;
   transition: transform 0.2s var(--ease-out), border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
 }
 .conv-card:hover { border-color: var(--accent-border); background: var(--panel2); transform: translateY(-2px); box-shadow: 0 8px 20px rgba(0, 0, 0, 0.18); }
@@ -1451,6 +1471,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .mobile-nav-overlay, .mobile-nav-drawer { display: none; }
 
 @media(max-width:700px){
+  body:before{animation:none;will-change:auto}
   .app{grid-template-columns:1fr;grid-template-rows:56px 1fr}
   .topbar{padding:0 10px;height:56px;gap:8px}
   .topbar-left{gap:6px}

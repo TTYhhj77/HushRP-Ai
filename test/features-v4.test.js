@@ -2151,5 +2151,211 @@ test('v1.1.1: non-overlapping mobile menu toggle in topbar + bottom bar, Custom 
   assert.equal(makeEl('mobileBottomMenuBtn').classList.contains('active'), true);
 });
 
+test('v1.2.0: gzip/ETag/304 & PWA assets, Stop Generating AbortController, mobile perf CSS, Android APK project, and standalone APK runtime', async () => {
+  // 1. Android APK project files & GitHub Actions workflow exist and are properly configured
+  const rootDir = path.join(__dirname, '..');
+  const gradleApp = fs.readFileSync(path.join(rootDir, 'android', 'app', 'build.gradle'), 'utf8');
+  const manifestXml = fs.readFileSync(path.join(rootDir, 'android', 'app', 'src', 'main', 'AndroidManifest.xml'), 'utf8');
+  const mainActivity = fs.readFileSync(path.join(rootDir, 'android', 'app', 'src', 'main', 'java', 'com', 'hushrp', 'app', 'MainActivity.java'), 'utf8');
+  const ciWorkflow = fs.readFileSync(path.join(rootDir, '.github', 'workflows', 'build-android-apk.yml'), 'utf8');
+  const css = fs.readFileSync(path.join(rootDir, 'public', 'css', 'styles.css'), 'utf8');
+
+  assert.match(gradleApp, /applicationId 'com\.hushrp\.app'/);
+  assert.match(gradleApp, /syncWebAssets/);
+  assert.match(manifestXml, /android:windowSoftInputMode="adjustResize"/);
+  assert.match(mainActivity, /HushAndroidBridge/);
+  assert.match(mainActivity, /httpRequestAsync/);
+  assert.match(mainActivity, /onShowFileChooser/);
+  assert.match(mainActivity, /handleAndroidBackPress/);
+  assert.match(ciWorkflow, /assembleRelease/);
+  assert.match(css, /content-visibility:\s*auto/);
+  assert.match(css, /body:before\{animation:none;will-change:auto\}/);
+
+  // 2. Server serves gzipped assets with ETag + 304 Not Modified and PWA manifest/SW/icon
+  await withCustomServer({}, async base => {
+    const cssRes = await fetch(`${base}/css/styles.css`, { headers: { 'accept-encoding': 'gzip' } });
+    assert.equal(cssRes.status, 200);
+    const etag = cssRes.headers.get('etag');
+    assert.ok(etag, 'Expected ETag header on static asset');
+
+    const notMod = await fetch(`${base}/css/styles.css`, { headers: { 'if-none-match': etag } });
+    assert.equal(notMod.status, 304);
+
+    const manifestRes = await fetch(`${base}/manifest.json`);
+    assert.equal(manifestRes.status, 200);
+    const manifestJson = await manifestRes.json();
+    assert.equal(manifestJson.short_name, 'HushRP');
+
+    const swRes = await fetch(`${base}/sw.js`);
+    assert.equal(swRes.status, 200);
+    assert.match(await swRes.text(), /HUSH_CACHE/);
+
+    const iconRes = await fetch(`${base}/icon.svg`);
+    assert.equal(iconRes.status, 200);
+    assert.match(iconRes.headers.get('content-type') || '', /image\/svg\+xml/);
+  });
+
+  // 3. Standalone Android APK runtime bridge + Stop Generating + Android Back Press
+  const elements = new Map();
+  const storage = new Map();
+  const nativeHttpCalls = [];
+  const statusBarCalls = [];
+  let savedFiles = [];
+
+  function createMockEl(id = '', tag = 'div') {
+    const classSet = new Set();
+    const attrs = {};
+    return {
+      id,
+      tagName: tag.toUpperCase(),
+      value: '',
+      textContent: '',
+      innerHTML: '',
+      hidden: false,
+      disabled: false,
+      dataset: {},
+      style: { display: '', height: '', backgroundImage: '', opacity: '', setProperty() {} },
+      classList: {
+        add(...names) { names.forEach(n => classSet.add(n)); },
+        remove(...names) { names.forEach(n => classSet.delete(n)); },
+        toggle(n, force) {
+          if (typeof force === 'boolean') { if (force) classSet.add(n); else classSet.delete(n); return force; }
+          if (classSet.has(n)) { classSet.delete(n); return false; }
+          classSet.add(n); return true;
+        },
+        contains: n => classSet.has(n)
+      },
+      setAttribute(k, v) { attrs[k] = String(v); },
+      getAttribute: k => attrs[k] ?? null,
+      appendChild() {},
+      querySelector: () => null,
+      querySelectorAll: () => [],
+      addEventListener() {},
+      focus() {}
+    };
+  }
+  function makeEl(id) {
+    if (!elements.has(id)) elements.set(id, createMockEl(id));
+    return elements.get(id);
+  }
+
+  const sendBtn = createMockEl('sendBtn', 'button');
+  const ctx = {
+    console, Math, Date, JSON, Array, Object, Set, Map, RegExp, Error, Promise, Intl, URL, AbortController,
+    encodeURIComponent, decodeURIComponent, escape, unescape, setTimeout, clearTimeout,
+    requestAnimationFrame: fn => fn(),
+    matchMedia: () => ({ matches: false, addEventListener() {} }),
+    navigator: { language: 'th-TH' },
+    location: { protocol: 'https:', hostname: 'appassets.androidplatform.net' },
+    HushAndroid: {
+      setStatusBarColor(hex, isLight) { statusBarCalls.push({ hex, isLight }); },
+      saveTextFile(name, mime, content) { savedFiles.push({ name, mime, content }); return true; },
+      cancelHttpRequest() {},
+      httpRequestAsync(reqId, optsJson) {
+        const opts = JSON.parse(optsJson);
+        nativeHttpCalls.push(opts);
+        if (opts.url.includes('/models')) {
+          ctx.__hushNativeHttpCallback(reqId, JSON.stringify({
+            ok: true, status: 200,
+            text: JSON.stringify({ data: [{ id: 'gpt-4o-mini' }, { id: 'anthropic/claude-sonnet-4.6' }] })
+          }));
+        } else if (opts.url.includes('/chat/completions')) {
+          ctx.__hushNativeHttpCallback(reqId, JSON.stringify({
+            ok: true, status: 200,
+            text: JSON.stringify({ choices: [{ message: { content: '<think>plan</think>สวัสดีจาก APK!' }, finish_reason: 'stop' }] })
+          }));
+        } else {
+          ctx.__hushNativeHttpCallback(reqId, JSON.stringify({ ok: true, status: 200, text: '{}' }));
+        }
+      }
+    },
+    fetch: async () => { throw new Error('Should not hit browser fetch for /api/ in APK standalone mode'); },
+    localStorage: {
+      getItem: k => (storage.has(k) ? storage.get(k) : null),
+      setItem: (k, v) => { storage.set(k, String(v)); },
+      removeItem: k => { storage.delete(k); }
+    },
+    sessionStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
+    innerWidth: 390,
+    innerHeight: 844,
+    addEventListener: () => {},
+    document: {
+      activeElement: null,
+      documentElement: { style: { setProperty() {}, removeProperty() {} }, setAttribute() {}, getAttribute: () => null, removeAttribute() {} },
+      body: createMockEl('body', 'body'),
+      createElement: tag => createMockEl('', tag),
+      createTextNode: txt => ({ textContent: String(txt) }),
+      getElementById: id => makeEl(id),
+      querySelector: sel => (sel === '.send' ? sendBtn : null),
+      querySelectorAll: () => [],
+      addEventListener: () => {}
+    }
+  };
+  ctx.window = ctx;
+  ctx.self = ctx;
+  vm.createContext(ctx);
+
+  for (const rel of [
+    'locales/th.js', 'locales/en.js', 'locales/zh.js', 'locales/ja.js',
+    'js/i18n.js', 'js/state.js', 'js/mobile-runtime.js', 'js/api.js', 'js/characters.js', 'js/chat.js', 'js/settings.js', 'js/app.js'
+  ]) {
+    vm.runInContext(fs.readFileSync(path.join(rootDir, 'public', rel), 'utf8'), ctx, { filename: rel });
+  }
+
+  // APK Standalone /api/status, /api/settings (device key), /api/models, /api/chat
+  assert.equal(ctx.isNativeAndroidApp(), true);
+  assert.equal(makeEl('mobileAppPanel').hidden, false);
+
+  const putKeyRes = await ctx.fetch('/api/settings', {
+    method: 'PUT',
+    body: JSON.stringify({ serverApiKey: 'sk-apk-device-secret-9999' })
+  });
+  assert.equal(putKeyRes.status, 200);
+  const statusJson = await (await ctx.fetch('/api/status')).json();
+  assert.equal(statusJson.runtimeMode, 'apk-standalone');
+  assert.equal(statusJson.aiConfigured, true);
+  assert.match(statusJson.serverKeyMasked, /sk-••••9999/);
+
+  const modelsRes = await ctx.fetch('/api/models', {
+    method: 'POST',
+    body: JSON.stringify({ provider: 'openai', baseUrl: 'https://api.openai.com/v1' })
+  });
+  assert.equal(modelsRes.status, 200);
+  assert.deepEqual((await modelsRes.json()).models, ['gpt-4o-mini', 'anthropic/claude-sonnet-4.6']);
+
+  const chatRes = await ctx.fetch('/api/chat', {
+    method: 'POST',
+    body: JSON.stringify({ provider: 'openai', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini', messages: [{ role: 'user', content: 'hi' }] })
+  });
+  assert.equal(chatRes.status, 200);
+  assert.equal((await chatRes.json()).text, 'สวัสดีจาก APK!');
+  assert.ok(nativeHttpCalls.length >= 2);
+
+  // Stop Generating button & AbortController
+  ctx.setComposerBusy(true);
+  assert.equal(makeEl('stopGenBtn').hidden, false);
+  assert.equal(sendBtn.hidden, true);
+  const sig = ctx.beginTurnAbortController();
+  assert.equal(sig.aborted, false);
+  assert.equal(ctx.stopGeneratingReply(), true);
+  assert.equal(sig.aborted, true);
+  ctx.setComposerBusy(false);
+  assert.equal(makeEl('stopGenBtn').hidden, true);
+  assert.equal(sendBtn.hidden, false);
+
+  // Android Status Bar sync & Back button handling
+  ctx.applyTheme('sakura');
+  assert.ok(statusBarCalls.some(c => c.hex === '#17111a' && c.isLight === false));
+  makeEl('modelPickerModal').classList.add('show');
+  assert.equal(ctx.handleAndroidBackPress(), true);
+  assert.equal(makeEl('modelPickerModal').classList.contains('show'), false);
+
+  // Native export file bridge
+  assert.equal(ctx.saveFileNativeOrBrowser('story.md', 'text/markdown', '# Hi'), true);
+  assert.equal(savedFiles.length, 1);
+  assert.equal(savedFiles[0].name, 'story.md');
+});
+
+
 
 

@@ -21,9 +21,11 @@ function normalizeBaseUrl(raw) {
   return u.toString().replace(/\/$/, '');
 }
 
-async function postWithAutoHost(endpoint, payload) {
+async function postWithAutoHost(endpoint, payload, opts = {}) {
   const headers = Object.assign({ 'content-type': 'application/json' }, getSessionHeaders());
-  let r = await fetch(endpoint, { method: 'POST', headers, body: JSON.stringify(payload) });
+  const reqInit = { method: 'POST', headers, body: JSON.stringify(payload) };
+  if (opts && opts.signal) reqInit.signal = opts.signal;
+  let r = await fetch(endpoint, reqInit);
   let data = {};
   try { data = await r.json(); } catch { data = {}; }
 
@@ -37,7 +39,7 @@ async function postWithAutoHost(endpoint, payload) {
     if (ar.ok) {
       if (typeof loadCustomHostList === 'function') loadCustomHostList();
       showToast(t('host_auto_added', 'เพิ่ม host “{host}” เข้าระบบอัตโนมัติแล้ว').replace('{host}', data.host));
-      r = await fetch(endpoint, { method: 'POST', headers, body: JSON.stringify(payload) });
+      r = await fetch(endpoint, reqInit);
       try { data = await r.json(); } catch { data = {}; }
     } else if (ad.error) {
       data = ad;
@@ -46,7 +48,7 @@ async function postWithAutoHost(endpoint, payload) {
   return { r, data };
 }
 
-async function apiChat(messages) {
+async function apiChat(messages, opts = {}) {
   const selected = document.getElementById('providerSelect')?.value || 'OpenAI';
   const provider = PROVIDER_MAP[selected];
   const rawBase = document.getElementById('baseUrl')?.value.trim() || '';
@@ -73,7 +75,8 @@ async function apiChat(messages) {
     payload.apiKey=sessionApiKey;
   }
 
-  const { r, data } = await postWithAutoHost('/api/chat', payload);
+  const effectiveSignal = (opts && opts.signal) || (typeof activeChatAbortController !== 'undefined' && activeChatAbortController ? activeChatAbortController.signal : null);
+  const { r, data } = await postWithAutoHost('/api/chat', payload, { signal: effectiveSignal });
   if (!r.ok) {
     if (data && data.host && !data.canAddDynamic) {
       throw new Error(t('host_not_allowed_vps', 'Host {host} ไม่ได้รับอนุญาต — เพิ่ม hostname ใน CUSTOM_ENDPOINT_HOSTS บน server (VPS mode)').replace('{host}', data.host));

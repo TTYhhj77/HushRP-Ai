@@ -222,6 +222,12 @@ function renderFavoriteCards(){
 }
 
 let discoverSortMode = 'default';
+let discoverSearchTimer = null;
+
+function scheduleRenderCards() {
+  clearTimeout(discoverSearchTimer);
+  discoverSearchTimer = setTimeout(() => renderCards(), 100);
+}
 
 function cycleDiscoverSort() {
   const order = ['default', 'fav', 'mine'];
@@ -784,12 +790,15 @@ function downloadSharedCharacter() {
   if (!activeShareCharacter) return;
   const json = JSON.stringify(activeShareCharacter, null, 2);
   const safeName = activeShareCharacter.name.replace(/[^\p{L}\p{N}_-]+/gu, '_').replace(/^_+|_+$/g, '') || 'character';
-  if (typeof Blob === 'function' && typeof URL !== 'undefined' && URL.createObjectURL) {
+  const fname = `${safeName}.hushchar.json`;
+  if (typeof saveFileNativeOrBrowser === 'function') {
+    saveFileNativeOrBrowser(fname, 'application/json;charset=utf-8', json);
+  } else if (typeof Blob === 'function' && typeof URL !== 'undefined' && URL.createObjectURL) {
     const blob = new Blob([json], { type: 'application/json;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${safeName}.hushchar.json`;
+    a.download = fname;
     document.body.appendChild(a);
     a.click();
     a.remove();

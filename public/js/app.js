@@ -180,5 +180,16 @@ loadUserProfiles();
 loadChatStoresFromStorage();
 if (typeof renderCharacterMemoryUi === 'function') renderCharacterMemoryUi();
 if (typeof syncAmbientUi === 'function') syncAmbientUi();
+if (typeof syncMobileConnectionPanelUi === 'function') syncMobileConnectionPanelUi();
 syncChatStoresWithServer();
 renderCards();
+
+if (
+  typeof navigator !== 'undefined' &&
+  'serviceWorker' in navigator &&
+  typeof location !== 'undefined' &&
+  (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1') &&
+  location.hostname !== 'appassets.androidplatform.net'
+) {
+  navigator.serviceWorker.register('/sw.js').catch(() => {});
+}

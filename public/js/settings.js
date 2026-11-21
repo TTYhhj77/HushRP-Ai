@@ -189,7 +189,17 @@ function formatModelDisplayName(modelId) {
   return m;
 }
 
+let modelSearchDebounceTimer = null;
+
+function scheduleModelPickerSearch(val) {
+  clearTimeout(modelSearchDebounceTimer);
+  const clearBtn = document.getElementById('modelSearchClearBtn');
+  if (clearBtn) clearBtn.hidden = !String(val || '').trim();
+  modelSearchDebounceTimer = setTimeout(() => renderModelPickerList(val), 75);
+}
+
 function clearModelSearch() {
+  clearTimeout(modelSearchDebounceTimer);
   const inp = document.getElementById('modelSearchInput');
   if (inp) {
     inp.value = '';
@@ -957,6 +967,7 @@ function updateCustomThemeDraft() {
   activeTheme = 'custom';
   document.documentElement?.setAttribute?.('data-theme', 'custom');
   applyCustomThemeCssVars(draft);
+  if (typeof syncAndroidStatusBar === 'function') syncAndroidStatusBar(draft.bg);
   renderThemeSelector();
 }
 
@@ -1063,6 +1074,7 @@ function applyTheme(themeId, options = {}) {
   if (metaTheme?.setAttribute) {
     metaTheme.setAttribute('content', metaColor);
   }
+  if (typeof syncAndroidStatusBar === 'function') syncAndroidStatusBar(metaColor);
   renderThemeSelector();
 
   if (!quiet) {

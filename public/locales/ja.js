@@ -514,6 +514,20 @@ window.SAMPLE_JA_LOCALE = {
     "custom_theme_save_btn": "テーマを保存して適用",
     "custom_theme_reset_btn": "初期値に戻す",
     "toast_custom_theme_saved": "カスタムテーマを保存して適用しました",
-    "toast_custom_theme_reset": "カスタムテーマをリセットしました"
+    "toast_custom_theme_reset": "カスタムテーマをリセットしました",
+    "btn_stop_gen": "停止",
+    "toast_gen_stopped": "応答の生成を停止しました",
+    "mobile_app_eyebrow": "MOBILE APP MODE",
+    "mobile_app_title": "モバイルアプリモード (APK)",
+    "mobile_app_sub": "スマホ単体で動作させる（PC不要）か、自分の HushRP PC / VPS サーバーに接続できます。",
+    "mobile_mode_label": "接続モード",
+    "mobile_mode_standalone": "Standalone · 端末単体で実行",
+    "mobile_mode_server": "Remote Server · HushRP サーバーへ接続",
+    "mobile_server_url_label": "HushRP サーバー URL（例: http://192.168.1.50:3000）",
+    "mobile_server_save_btn": "接続モードを保存",
+    "toast_mobile_mode_standalone": "端末単体 (Standalone) モードに切り替えました",
+    "toast_mobile_mode_server": "リモート HushRP サーバーモードに切り替えました",
+    "mobile_server_url_required": "HushRP サーバー URL を入力してください",
+    "mobile_server_url_invalid": "サーバー URL の形式が正しくありません"
   }
 };

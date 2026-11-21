@@ -513,5 +513,19 @@ window.I18N.en = {
   "custom_theme_save_btn": "Save & Apply Theme",
   "custom_theme_reset_btn": "Reset Custom Theme",
   "toast_custom_theme_saved": "Saved and applied your custom theme",
-  "toast_custom_theme_reset": "Reset custom theme to defaults"
+  "toast_custom_theme_reset": "Reset custom theme to defaults",
+  "btn_stop_gen": "Stop",
+  "toast_gen_stopped": "Stopped generating reply",
+  "mobile_app_eyebrow": "MOBILE APP MODE",
+  "mobile_app_title": "Mobile App Mode (APK)",
+  "mobile_app_sub": "Run standalone directly on your phone (no PC needed), or connect to your own HushRP PC / VPS server.",
+  "mobile_mode_label": "Connection Mode",
+  "mobile_mode_standalone": "Standalone · Direct on device",
+  "mobile_mode_server": "Remote Server · Connect to HushRP host",
+  "mobile_server_url_label": "HushRP Server URL (e.g. http://192.168.1.50:3000)",
+  "mobile_server_save_btn": "Save Connection Mode",
+  "toast_mobile_mode_standalone": "Switched to Standalone on-device mode",
+  "toast_mobile_mode_server": "Switched to Remote HushRP Server mode",
+  "mobile_server_url_required": "Please enter your HushRP Server URL first",
+  "mobile_server_url_invalid": "Invalid HushRP Server URL format"
 };

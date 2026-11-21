@@ -513,5 +513,19 @@ window.I18N.th = {
   "custom_theme_save_btn": "บันทึก & ใช้ธีมนี้",
   "custom_theme_reset_btn": "รีเซ็ตค่าเริ่มต้น",
   "toast_custom_theme_saved": "บันทึกและเปิดใช้ธีมของคุณแล้ว",
-  "toast_custom_theme_reset": "รีเซ็ตธีมกำหนดเองกลับเป็นค่าเริ่มต้นแล้ว"
+  "toast_custom_theme_reset": "รีเซ็ตธีมกำหนดเองกลับเป็นค่าเริ่มต้นแล้ว",
+  "btn_stop_gen": "หยุด",
+  "toast_gen_stopped": "หยุดการสร้างคำตอบแล้ว",
+  "mobile_app_eyebrow": "MOBILE APP MODE",
+  "mobile_app_title": "โหมดการทำงานแอปมือถือ (APK)",
+  "mobile_app_sub": "เลือกรันแบบเดี่ยวบนมือถือ (ไม่ต้องเปิดคอม) หรือเชื่อมต่อกับเซิร์ฟเวอร์ HushRP บน PC / VPS ของคุณ",
+  "mobile_mode_label": "โหมดเชื่อมต่อ",
+  "mobile_mode_standalone": "Standalone · ใช้งานเดี่ยวบนมือถือทันที",
+  "mobile_mode_server": "Remote Server · เชื่อมต่อเซิร์ฟเวอร์ HushRP",
+  "mobile_server_url_label": "URL เซิร์ฟเวอร์ HushRP (เช่น http://192.168.1.50:3000)",
+  "mobile_server_save_btn": "บันทึกโหมดเชื่อมต่อ",
+  "toast_mobile_mode_standalone": "สลับเป็นโหมดใช้งานเดี่ยวบนมือถือ (Standalone) แล้ว",
+  "toast_mobile_mode_server": "สลับเป็นโหมดเชื่อมต่อเซิร์ฟเวอร์ HushRP แล้ว",
+  "mobile_server_url_required": "กรุณาใส่ URL เซิร์ฟเวอร์ HushRP ก่อน",
+  "mobile_server_url_invalid": "รูปแบบ URL เซิร์ฟเวอร์ไม่ถูกต้อง"
 };

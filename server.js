@@ -5,11 +5,15 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const os = require('node:os');
+const zlib = require('node:zlib');
 const {buildCompactContext}=require('./lib/context');
 
 const MAX_BODY = 8 * 1024 * 1024;
-const MIME = {'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json; charset=utf-8','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.svg':'image/svg+xml'};
+const MIME = {'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json; charset=utf-8','.webmanifest':'application/manifest+json; charset=utf-8','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.svg':'image/svg+xml'};
+const COMPRESSIBLE_EXT = new Set(['.html', '.js', '.css', '.json', '.svg', '.webmanifest']);
 const SAFE_PROVIDERS = new Set(['openai-compatible','openai','openrouter','ollama']);
+const jsonFileCache = new Map();
+const staticAssetCache = new Map();
 
 function json(res, status, value) {
   const body = JSON.stringify(value);
@@ -24,9 +28,27 @@ function readJson(req, limit = MAX_BODY) {
     req.on('error',reject);
   });
 }
-function loadCharacters(file){try{const arr=JSON.parse(fs.readFileSync(file,'utf8'));return Array.isArray(arr)?arr:[]}catch{return []}}
+function readJsonCached(file, isArr = false) {
+  try {
+    const stat = fs.statSync(file);
+    const sig = `${stat.mtimeMs}:${stat.size}`;
+    const hit = jsonFileCache.get(file);
+    if (hit && hit.sig === sig) {
+      return typeof structuredClone === 'function' ? structuredClone(hit.data) : JSON.parse(JSON.stringify(hit.data));
+    }
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const valid = isArr ? (Array.isArray(parsed) ? parsed : []) : (parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {});
+    if (jsonFileCache.size > 128) jsonFileCache.clear();
+    jsonFileCache.set(file, { sig, data: valid });
+    return typeof structuredClone === 'function' ? structuredClone(valid) : JSON.parse(JSON.stringify(valid));
+  } catch {
+    jsonFileCache.delete(file);
+    return isArr ? [] : {};
+  }
+}
+function loadCharacters(file){return readJsonCached(file, true)}
 const SETTINGS_KEYS=new Set(['globalPrompt','tokenBudget','replyBudget','worldSettings','providerSettings','modelCache','userProfiles','activeProfileId','favorites','activeLocale','customLocales','dynamicCustomHosts','serverApiKey','activeTheme','customTheme']);
-function loadSettings(file){try{const o=JSON.parse(fs.readFileSync(file,'utf8'));return o&&typeof o==='object'&&!Array.isArray(o)?o:{}}catch{return {}}}
+function loadSettings(file){return readJsonCached(file, false)}
 function timingSafeCheck(a, b){
   if(typeof a !== 'string' || typeof b !== 'string') return false;
   const bufA = Buffer.from(a, 'utf8');
@@ -159,8 +181,59 @@ function stripThinkingTags(text){
 }
 function safeWriteJson(file,data){
   const tmp=`${file}.${crypto.randomBytes(6).toString('hex')}.tmp`;
-  fs.writeFileSync(tmp,JSON.stringify(data,null,2)+'\n','utf8');
-  fs.renameSync(tmp,file);
+  try{
+    fs.writeFileSync(tmp,JSON.stringify(data,null,2)+'\n','utf8');
+    try{
+      fs.renameSync(tmp,file);
+    }catch(err){
+      if(err&&(err.code==='EPERM'||err.code==='EBUSY')){
+        fs.copyFileSync(tmp,file);
+        try{fs.unlinkSync(tmp)}catch{}
+      }else{throw err}
+    }
+    jsonFileCache.delete(file);
+  }catch(err){
+    try{fs.unlinkSync(tmp)}catch{}
+    throw err;
+  }
+}
+function serveStaticAsset(req,res,target,extraHeaders={}){
+  try{
+    const stat=fs.statSync(target);
+    if(!stat.isFile())return json(res,404,{error:'Not found'});
+    const ext=path.extname(target).toLowerCase();
+    const ctype=MIME[ext]||'application/octet-stream';
+    const etag=`W/"${stat.size}-${Math.trunc(stat.mtimeMs)}"`;
+    const baseHeaders={
+      'content-type':ctype,
+      'etag':etag,
+      'vary':'Accept-Encoding',
+      'cache-control':'no-cache',
+      'x-content-type-options':'nosniff',
+      'referrer-policy':'no-referrer',
+      ...extraHeaders
+    };
+    if(req.headers['if-none-match']===etag){
+      res.writeHead(304,baseHeaders);
+      return res.end();
+    }
+    const sig=`${stat.mtimeMs}:${stat.size}`;
+    let entry=staticAssetCache.get(target);
+    if(!entry||entry.sig!==sig){
+      const raw=fs.readFileSync(target);
+      const gz=COMPRESSIBLE_EXT.has(ext)&&raw.length>=512?zlib.gzipSync(raw,{level:6}):null;
+      if(staticAssetCache.size>64)staticAssetCache.clear();
+      entry={sig,raw,gz};
+      staticAssetCache.set(target,entry);
+    }
+    const acceptsGzip=entry.gz&&/\bgzip\b/i.test(String(req.headers['accept-encoding']||''));
+    const body=acceptsGzip?entry.gz:entry.raw;
+    const headers=acceptsGzip?{...baseHeaders,'content-encoding':'gzip','content-length':body.length}:{...baseHeaders,'content-length':body.length};
+    res.writeHead(200,headers);
+    return res.end(body);
+  }catch{
+    return json(res,404,{error:'Not found'});
+  }
 }
 function listPrivateIPv4(){
   const found=[];
@@ -684,21 +757,24 @@ function createServer(options={}) {
       const name=path.basename(url.pathname);if(!/^[a-f0-9]{32}\.(png|jpg|webp)$/.test(name))return json(res,404,{error:'Not found'});
       const file=path.join(uploadsDir,name);try{const stat=fs.statSync(file);res.writeHead(200,{'content-type':MIME[path.extname(file)],'content-length':stat.size,'cache-control':'public, max-age=31536000, immutable','x-content-type-options':'nosniff','content-security-policy':"default-src 'none'; sandbox",'referrer-policy':'no-referrer'});return fs.createReadStream(file).pipe(res)}catch{return json(res,404,{error:'Not found'})}
     }
+    if(req.method==='GET'&&(url.pathname==='/manifest.json'||url.pathname==='/sw.js'||url.pathname==='/icon.svg')){
+      const target=path.join(publicDir,url.pathname.slice(1));
+      const extra=url.pathname==='/sw.js'?{'service-worker-allowed':'/'}:{};
+      return serveStaticAsset(req,res,target,extra);
+    }
     if(req.method==='GET'&&(url.pathname.startsWith('/css/')||url.pathname.startsWith('/js/')||url.pathname.startsWith('/locales/'))){
       let relPath='';
       try{relPath=decodeURIComponent(url.pathname).replace(/^\/+/,'')}catch{return json(res,400,{error:'Bad path'})}
       const target=path.resolve(publicDir,relPath);
       if(!target.startsWith(publicDir+path.sep))return json(res,403,{error:'Forbidden'});
-      try{
-        const stat=fs.statSync(target);
-        if(!stat.isFile())return json(res,404,{error:'Not found'});
-        const ctype=MIME[path.extname(target)]||'application/octet-stream';
-        res.writeHead(200,{'content-type':ctype,'content-length':stat.size,'cache-control':'no-cache','x-content-type-options':'nosniff','referrer-policy':'no-referrer'});
-        return fs.createReadStream(target).pipe(res);
-      }catch{return json(res,404,{error:'Not found'})}
+      return serveStaticAsset(req,res,target);
     }
     if(req.method==='GET'&&(url.pathname==='/'||url.pathname==='/index.html')){
-      const file=path.join(publicDir,'index.html');try{const stat=fs.statSync(file);res.writeHead(200,{'content-type':MIME['.html'],'content-length':stat.size,'cache-control':'no-cache','x-content-type-options':'nosniff','referrer-policy':'no-referrer','x-frame-options':'SAMEORIGIN','content-security-policy':"default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https: http:; media-src 'self' data: blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'self';"});return fs.createReadStream(file).pipe(res)}catch{return json(res,500,{error:'UI file missing'})}
+      const file=path.join(publicDir,'index.html');
+      return serveStaticAsset(req,res,file,{
+        'x-frame-options':'SAMEORIGIN',
+        'content-security-policy':"default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https: http:; media-src 'self' data: blob:; manifest-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self';"
+      });
     }
     return json(res,404,{error:'Not found'});
   });

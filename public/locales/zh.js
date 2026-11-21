@@ -513,5 +513,19 @@ window.I18N.zh = {
   "custom_theme_save_btn": "保存并应用主题",
   "custom_theme_reset_btn": "重置自定义主题",
   "toast_custom_theme_saved": "已保存并应用自定义主题",
-  "toast_custom_theme_reset": "已重置自定义主题"
+  "toast_custom_theme_reset": "已重置自定义主题",
+  "btn_stop_gen": "停止",
+  "toast_gen_stopped": "已停止生成回复",
+  "mobile_app_eyebrow": "MOBILE APP MODE",
+  "mobile_app_title": "移动应用模式 (APK)",
+  "mobile_app_sub": "可在手机上独立运行（无需电脑），或连接到你自己的 HushRP PC / VPS 服务器。",
+  "mobile_mode_label": "连接模式",
+  "mobile_mode_standalone": "Standalone · 手机本地独立运行",
+  "mobile_mode_server": "Remote Server · 连接远程 HushRP 服务器",
+  "mobile_server_url_label": "HushRP 服务器地址（例如 http://192.168.1.50:3000）",
+  "mobile_server_save_btn": "保存连接模式",
+  "toast_mobile_mode_standalone": "已切换为手机独立模式 (Standalone)",
+  "toast_mobile_mode_server": "已切换为远程 HushRP 服务器模式",
+  "mobile_server_url_required": "请先输入 HushRP 服务器地址",
+  "mobile_server_url_invalid": "服务器地址格式无效"
 };
